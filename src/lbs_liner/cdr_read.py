@@ -33,6 +33,8 @@ CHUNK_TYPE_CURVE = 0x03
 ARG_COORDS = 0x1E
 ARG_FILL = 0x14
 ARG_OUTL = 0x0A
+ARG_LAYER_NAME = 0x3E8
+ARG_GUID = 0x9C72
 
 # Заголовок loda: 5 полей u32.
 _LODA_HEADER = 20
@@ -64,6 +66,7 @@ class CurveObject:
     transform: Transform = (1.0, 0.0, 0.0, 0.0, 1.0, 0.0)
     fill_id: int | None = None
     outl_id: int | None = None
+    layer_chunk: Chunk | None = None
 
     def world_subpaths(self, tolerance: float = 0.002) -> list[Subpath]:
         """Подпути в мировых координатах, безье сглажены до ломаных."""
@@ -114,17 +117,33 @@ class CdrDocument:
 
     def curve_objects(self) -> list[CurveObject]:
         """Все объекты-кривые страниц в порядке рисования (низ → верх)."""
-        return self._collect_objects(self.root)
+        return self._collect_objects(self.root, None)
 
-    def _collect_objects(self, node: Chunk) -> list[CurveObject]:
+    def layer_name(self, layr_chunk: Chunk | None) -> str | None:
+        """Имя слоя из аргумента 0x3E8 его loda (UTF-16LE до нулей)."""
+        if layr_chunk is None:
+            return None
+        lodas = layr_chunk.find_all('loda')
+        if not lodas:
+            return None
+        args = parse_loda_args(self.resolve(lodas[0]))
+        raw = args.get(ARG_LAYER_NAME)
+        if raw is None:
+            return None
+        return raw.decode('utf-16-le', 'ignore').split('\x00', 1)[0]
+
+    def _collect_objects(self, node: Chunk, layer: Chunk | None) -> list[CurveObject]:
         found: list[CurveObject] = []
         for child in node.children:
             if child.is_container and child.list_type == 'obj ':
                 curve = self._parse_object(child)
                 if curve is not None:
+                    curve.layer_chunk = layer
                     found.append(curve)
+            elif child.is_container and child.list_type == 'layr':
+                found.extend(self._collect_objects(child, child))
             elif child.is_container:
-                found.extend(self._collect_objects(child))
+                found.extend(self._collect_objects(child, layer))
         return found
 
     def _parse_object(self, obj_chunk: Chunk) -> CurveObject | None:
@@ -141,6 +160,27 @@ class CdrDocument:
             if transform is not None:
                 curve.transform = transform
         return curve
+
+
+def parse_loda_arg_list(body: bytes) -> list[tuple[int, bytes]]:
+    """Аргументы loda в порядке таблицы: (тип, тело до следующего аргумента)."""
+    total, num_args, start_args, start_types, _ = struct.unpack_from('<5I', body, 0)
+    offsets = struct.unpack_from(f'<{num_args}I', body, start_args)
+    types = list(reversed(struct.unpack_from(f'<{num_args}I', body, start_types)))
+    limit = min(total, len(body))
+    # Границы тел: соседние аргументы и обе таблицы (данные могут лежать
+    # как до таблиц — у кривых, так и после — у слоёв).
+    bounds = sorted({b for b in (*offsets, start_args, start_types, limit) if b})
+    out = []
+    for offset, arg_type in zip(offsets, types, strict=True):
+        end = next((b for b in bounds if b > offset), limit)
+        out.append((arg_type, body[offset:end]))
+    return out
+
+
+def parse_loda_args(body: bytes) -> dict[int, bytes]:
+    """Аргументы loda словарём тип → тело."""
+    return dict(parse_loda_arg_list(body))
 
 
 def _parse_loda(body: bytes, obj_chunk: Chunk) -> CurveObject | None:

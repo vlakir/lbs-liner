@@ -107,6 +107,20 @@ def build_loda(rings: list[Ring], outl_id: int, fill_id: int) -> bytes:
         (0x0A, struct.pack('<I', outl_id)),
         (0x2EE0, b'\xaa\xbb\xcc\xdd'),
     ]
+    return _serialize_loda_args(args, chunk_type=0x03)
+
+
+def build_layer_loda(name: str) -> bytes:
+    """Чанк loda слоя: GUID, служебные аргументы и имя (UTF-16LE)."""
+    args = [
+        (0x9C72, bytes(range(16))),
+        (0x2EE0, b'\x00' * 4),
+        (0x03E8, name.encode('utf-16-le') + b'\x00\x00'),
+    ]
+    return _serialize_loda_args(args, chunk_type=0x00)
+
+
+def _serialize_loda_args(args: list[tuple[int, bytes]], chunk_type: int) -> bytes:
     body = bytearray()
     offsets = []
     for _, payload in args:
@@ -117,7 +131,7 @@ def build_loda(rings: list[Ring], outl_id: int, fill_id: int) -> bytes:
     args_at = 20 + len(body)
     types_at = args_at + 4 * len(args)
     total = types_at + 4 * len(args)
-    out = bytearray(struct.pack('<5I', total, len(args), args_at, types_at, 0x03))
+    out = bytearray(struct.pack('<5I', total, len(args), args_at, types_at, chunk_type))
     out += body
     out += struct.pack(f'<{len(args)}I', *offsets)
     out += struct.pack(f'<{len(args)}I', *reversed([t for t, _ in args]))
@@ -179,6 +193,20 @@ def build_sample_cdr(path: Path) -> Path:
             ],
         )
 
+    def build_layr(name: str, spid: bytes, content: list[Chunk]) -> Chunk:
+        loda_ref = push(build_layer_loda(name))
+        flgs = Chunk(
+            name='flgs', payload=struct.pack('<IIQ', 0xFFFFFFFF, 4, 0x98000000)
+        )
+        lgob = Chunk(
+            name='LIST', list_type='lgob', children=[stub_chunk('loda', loda_ref)]
+        )
+        return Chunk(
+            name='LIST',
+            list_type='layr',
+            children=[flgs, Chunk(name='spid', payload=spid), lgob, *content],
+        )
+
     outl_stub = Chunk(name='outl')
     outl_stub.set_stub(0, len(OUTL_RECORD), 0)
 
@@ -192,6 +220,10 @@ def build_sample_cdr(path: Path) -> Path:
         list_type='grp ',
         children=[Chunk(name='spid', payload=b'\x04' * 16), *objects],
     )
+    zone_layer = build_layr('Заливка', b'\x05' * 16, [grp])
+    # Посторонний слой: одна чужая кривая, которую трогать нельзя.
+    foreign_obj = build_obj([square(20.0, 20.0, 3.0)], b'\x06' * 16)
+    foreign_layer = build_layr('Топооснова', b'\x07' * 16, [foreign_obj])
     root = Chunk(
         name='RIFF',
         list_type='CDRT',
@@ -208,7 +240,7 @@ def build_sample_cdr(path: Path) -> Path:
                     Chunk(
                         name='LIST',
                         list_type='gobj',
-                        children=[Chunk(name='LIST', list_type='layr', children=[grp])],
+                        children=[foreign_layer, zone_layer],
                     )
                 ],
             ),

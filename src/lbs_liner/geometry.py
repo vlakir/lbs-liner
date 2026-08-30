@@ -64,8 +64,15 @@ def classify(objects: list[CurveObject]) -> ClassifiedContours:
         msg = 'в файле не нашлось ни одного объекта-кривой'
         raise ValueError(msg)
 
-    candidates = [(obj, obj.world_subpaths()) for obj in objects]
-    zone_obj, zone_subpaths = max(candidates, key=lambda pair: _bbox_area(pair[1]))
+    all_candidates = [(obj, obj.world_subpaths()) for obj in objects]
+    zone_obj, zone_subpaths = max(all_candidates, key=lambda pair: _bbox_area(pair[1]))
+    # Чужие слои не трогаем: в работу идут только соседи зоны по слою.
+    candidates = [
+        pair for pair in all_candidates if pair[0].layer_chunk is zone_obj.layer_chunk
+    ]
+    skipped = len(all_candidates) - len(candidates)
+    if skipped:
+        logger.info('кривых на других слоях: %d — не участвуют', skipped)
 
     main_ring, islands = _zone_rings(zone_subpaths)
     zone_polygon = _build_zone_polygon(main_ring, islands)

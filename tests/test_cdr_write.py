@@ -1,13 +1,14 @@
-"""Тесты записи: патч обводок, пересборка loda, сквозной прогон."""
+"""Тесты записи: патч обводок, аддитивный новый слой, сквозной прогон."""
 
 from __future__ import annotations
 
 import struct
 from pathlib import Path
 
-from lbs_liner.cdr_read import CdrDocument
+from lbs_liner.cdr_read import CdrDocument, CurveObject
 from lbs_liner.cdr_write import (
     BLUE_RGB,
+    DEFAULT_LAYER_NAME,
     RED_RGB,
     _outl_block,
     _outl_width,
@@ -21,6 +22,30 @@ from lbs_liner.synthetic import OUTL_RECORD
 def _color_at(record: bytes, offset: int) -> tuple[int, int, int]:
     model, palette, _, value = struct.unpack_from('<HHII', record, offset)
     return model, palette, value
+
+
+def _convert(sample_cdr: Path, tmp_path: Path) -> tuple[CdrDocument, Path]:
+    doc = CdrDocument.load(sample_cdr)
+    contours = classify(doc.curve_objects())
+    double = build_double_line(contours, gap_mm=2.0)
+    out_path = tmp_path / 'out.cdr'
+    write_output(
+        doc,
+        contours.zone_object,
+        double.red,
+        double.blue,
+        width_mm=0.5,
+        out_path=out_path,
+    )
+    return CdrDocument.load(out_path), out_path
+
+
+def _new_objects(result: CdrDocument) -> list[CurveObject]:
+    return [
+        obj
+        for obj in result.curve_objects()
+        if result.layer_name(obj.layer_chunk) == DEFAULT_LAYER_NAME
+    ]
 
 
 def test_patch_outl_sets_width_and_color() -> None:
@@ -46,24 +71,16 @@ def test_patch_outl_sets_width_and_color() -> None:
     assert guid == b'\x00' * 16
 
 
-def test_full_pipeline_roundtrip(sample_cdr: Path, tmp_path: Path) -> None:
-    """Вход → двойная линия → выход, который снова читается."""
-    doc = CdrDocument.load(sample_cdr)
-    contours = classify(doc.curve_objects())
-    double = build_double_line(contours, gap_mm=2.0)
-    out_path = tmp_path / 'out.cdr'
-    write_output(
-        doc, contours.zone_object, double.red, double.blue, width_mm=0.5, out_path=out_path
-    )
-
-    result = CdrDocument.load(out_path)
-    objects = result.curve_objects()
-    assert len(objects) == 2
+def test_new_layer_holds_two_styled_objects(sample_cdr: Path, tmp_path: Path) -> None:
+    """В новом слое два объекта: без заливки, красная и синяя обводки."""
+    result, _ = _convert(sample_cdr, tmp_path)
+    new_objects = _new_objects(result)
+    assert len(new_objects) == 2
 
     widths = set()
     colors = set()
-    for obj in objects:
-        assert obj.fill_id is None, 'заливка должна исчезнуть'
+    for obj in new_objects:
+        assert obj.fill_id is None, 'заливки у новых объектов быть не должно'
         assert obj.outl_id is not None
         record = _find_outl_record(result, obj.outl_id)
         widths.add(_outl_width(record))
@@ -77,21 +94,51 @@ def test_full_pipeline_roundtrip(sample_cdr: Path, tmp_path: Path) -> None:
     assert colors == {red_value, blue_value}
 
 
-def test_open_subpath_stays_open(sample_cdr: Path, tmp_path: Path) -> None:
-    """У открытой линии нет бита замыкания ни на одной точке."""
-    doc = CdrDocument.load(sample_cdr)
-    contours = classify(doc.curve_objects())
-    double = build_double_line(contours, gap_mm=2.0)
-    out_path = tmp_path / 'out.cdr'
-    write_output(
-        doc, contours.zone_object, double.red, double.blue, width_mm=0.5, out_path=out_path
-    )
+def test_original_objects_untouched(sample_cdr: Path, tmp_path: Path) -> None:
+    """Исходные объекты и их слои остаются байт-в-байт."""
+    original = CdrDocument.load(sample_cdr)
+    original_lodas = sorted(obj.loda_raw for obj in original.curve_objects())
+    result, _ = _convert(sample_cdr, tmp_path)
 
-    for obj in CdrDocument.load(out_path).curve_objects():
+    old_objects = [
+        obj
+        for obj in result.curve_objects()
+        if result.layer_name(obj.layer_chunk) != DEFAULT_LAYER_NAME
+    ]
+    assert len(old_objects) == 4
+    assert sorted(obj.loda_raw for obj in old_objects) == original_lodas
+    # заливка исходной зоны цела
+    assert all(obj.fill_id == 1 for obj in old_objects)
+    # чужой слой на месте под своим именем
+    names = {result.layer_name(obj.layer_chunk) for obj in old_objects}
+    assert names == {'Заливка', 'Топооснова'}
+
+
+def test_new_ids_are_unique(sample_cdr: Path, tmp_path: Path) -> None:
+    """spid новых объектов/группы/слоя не совпадают со старыми."""
+    result, _ = _convert(sample_cdr, tmp_path)
+    resolved = []
+    for chunk in result.root.find_all('spid'):
+        # В синтетике spid лежит прямо в payload, в реальных файлах — по стабу.
+        body = chunk.payload
+        if _looks_like_stub(result, chunk):
+            body = result.resolve(chunk)
+        resolved.append(body)
+    assert len(resolved) == len(set(resolved)), 'дублирующиеся spid'
+
+
+def _looks_like_stub(doc: CdrDocument, chunk) -> bool:  # noqa: ANN001
+    file_index = struct.unpack_from('<I', chunk.payload, 0)[0]
+    return file_index in doc.data
+
+
+def test_open_subpath_stays_open(sample_cdr: Path, tmp_path: Path) -> None:
+    """У новых объектов ровно одна открытая линия, кольца перед ней."""
+    result, _ = _convert(sample_cdr, tmp_path)
+    for obj in _new_objects(result):
         subs = obj.world_subpaths()
         open_subs = [s for s in subs if not s.closed]
         assert len(open_subs) == 1
-        # открытая линия в конце списка, замкнутые кольца перед ней
         assert not subs[-1].closed
         assert all(s.closed for s in subs[:-1])
 
@@ -103,15 +150,17 @@ def test_bbox_updated(sample_cdr: Path, tmp_path: Path) -> None:
     double = build_double_line(contours, gap_mm=2.0)
     out_path = tmp_path / 'out.cdr'
     write_output(
-        doc, contours.zone_object, double.red, double.blue, width_mm=0.5, out_path=out_path
+        doc,
+        contours.zone_object,
+        double.red,
+        double.blue,
+        width_mm=0.5,
+        out_path=out_path,
     )
-
     result = CdrDocument.load(out_path)
-    all_points = [
-        pt for sub in double.red + double.blue for pt in sub.points
-    ]
+    all_points = [pt for sub in double.red + double.blue for pt in sub.points]
     xs = [x for x, _ in all_points]
-    for obj in result.curve_objects():
+    for obj in _new_objects(result):
         bbox_chunks = obj.obj_chunk.find_all('bbox')
         assert bbox_chunks
         x0, _, x1, _ = struct.unpack('<4i', result.resolve(bbox_chunks[0]))
