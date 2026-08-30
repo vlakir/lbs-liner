@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Reject direct push to protected branches (main, master).
+#
+# Exception: initial push of a fresh repository is allowed. Detected by
+# `remote_sha == 40 zeros`, meaning the branch does not exist on the
+# remote yet — there is no shared history to violate.
+#
+# Install:
+#   cp hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+#
+# Bypass (only when really needed):
+#   git push --no-verify
+#
+# Hook receives push refs on stdin, one per line:
+#   <local_ref> <local_sha> <remote_ref> <remote_sha>
+# See `man githooks` for details.
+
+set -euo pipefail
+
+protected_re='^refs/heads/(main|master)$'
+zero_sha='0000000000000000000000000000000000000000'
+
+while read -r _local_ref _local_sha remote_ref remote_sha; do
+    if [[ $remote_ref =~ $protected_re ]]; then
+        if [[ $remote_sha == "$zero_sha" ]]; then
+            echo "ℹ Initial push detected — allowing bootstrap of '${remote_ref##refs/heads/}'." >&2
+            continue
+        fi
+        branch=${remote_ref##refs/heads/}
+        echo "✖ Direct push to '$branch' is forbidden by project policy." >&2
+        echo "  Use a feature branch and PR/MR instead." >&2
+        echo "  See CLAUDE.md → Git workflow." >&2
+        echo "  Bypass: git push --no-verify (only if you really mean it)." >&2
+        exit 1
+    fi
+done
+
+exit 0

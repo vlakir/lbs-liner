@@ -1,0 +1,10 @@
+_commit: 1.7.0
+_src_path: /home/vlakir/.cache/uv/archive-v0/SW0WnlDPo9avCQXS/lib/python3.14/site-packages/dreamteam/template/.bundle
+language: ru
+package_manager: uv
+project_name: lbs-liner
+project_description: 'Служебный конвертер для CorelDRAW: залитая область в CDR-файле
+  превращается в двойную двухцветную контурную линию'
+author_name: Vladimir Kirievskiy
+author_email: vlakir1234@gmail.com
+architect_model: inherit

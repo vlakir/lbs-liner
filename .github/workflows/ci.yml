@@ -1,0 +1,55 @@
+# CI: гейты на Linux + сборка windows-exe со смоуком на синтетическом CDR.
+name: CI
+
+env:
+  PYTHONUTF8: '1'
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Зависимости
+        run: uv sync
+      - name: Линтер
+        run: uv run ruff check .
+      - name: Форматирование
+        run: uv run ruff format --check .
+      - name: Типы
+        run: uv run mypy src tests scripts
+      - name: Тесты с покрытием
+        run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+
+  build-windows:
+    runs-on: windows-latest
+    needs: gates
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Зависимости (со сборочной группой)
+        run: uv sync --group build
+      - name: Сборка exe
+        run: uv run pyinstaller lbs-liner.spec
+      - name: Смоук — образец
+        run: uv run python scripts/make_sample.py sample.cdr
+        env:
+          PYTHONPATH: src
+      - name: Смоук — прогон exe
+        run: dist/lbs-liner.exe sample.cdr -o result.cdr
+      - name: Смоук — проверка результата
+        run: uv run python scripts/verify_output.py result.cdr
+        env:
+          PYTHONPATH: src
+      - name: Артефакт
+        uses: actions/upload-artifact@v4
+        with:
+          name: lbs-liner-windows
+          path: dist/lbs-liner.exe
+          if-no-files-found: error
