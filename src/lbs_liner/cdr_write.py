@@ -319,25 +319,33 @@ def _rebuild_loda(donor: bytes, overrides: dict[int, bytes | None]) -> bytes:
         else:
             rebuilt.append((arg_type, payload))
 
-    header_size = 20
-    body = bytearray()
-    new_offsets = []
-    for _, payload in rebuilt:
-        new_offsets.append(header_size + len(body))
-        body += payload
-        if len(body) & 3:
-            body += b'\x00' * (4 - (len(body) & 3))
-    args_at = header_size + len(body)
-    types_at = args_at + 4 * len(rebuilt)
-    total = types_at + 4 * len(rebuilt)
-    out = bytearray(
-        struct.pack('<5I', total, len(rebuilt), args_at, types_at, chunk_type)
-    )
-    out += body
-    out += struct.pack(f'<{len(rebuilt)}I', *new_offsets)
-    out += struct.pack(
-        f'<{len(rebuilt)}I', *reversed([arg_type for arg_type, _ in rebuilt])
-    )
+    return _serialize_loda(rebuilt, chunk_type)
+
+
+def _serialize_loda(args: list[tuple[int, bytes]], chunk_type: int) -> bytes:
+    """
+    Собрать loda в родной раскладке Corel.
+
+    Заголовок, таблица смещений, сентинел (полная длина — по нему Corel
+    считает длину последнего аргумента), таблица типов в обратном
+    порядке, затем тела аргументов подряд без выравнивания.
+    """
+    num = len(args)
+    args_at = 20
+    types_at = args_at + 4 * num + 4  # +4 — сентинел после таблицы смещений
+    data_at = types_at + 4 * num
+    offsets = []
+    cursor = data_at
+    for _, payload in args:
+        offsets.append(cursor)
+        cursor += len(payload)
+    total = cursor
+    out = bytearray(struct.pack('<5I', total, num, args_at, types_at, chunk_type))
+    out += struct.pack(f'<{num}I', *offsets)
+    out += struct.pack('<I', total)
+    out += struct.pack(f'<{num}I', *reversed([arg_type for arg_type, _ in args]))
+    for _, payload in args:
+        out += payload
     return bytes(out)
 
 

@@ -15,8 +15,18 @@ from lbs_liner.cdr_write import (
     _patch_outl,
     write_output,
 )
+from lbs_liner.cdr_write import _rebuild_loda
 from lbs_liner.geometry import build_double_line, classify
 from lbs_liner.synthetic import OUTL_RECORD
+
+# Реальная лода группы CorelDRAW 17–22 (нейтральная: пустой список
+# растровых эффектов) — эталон родной раскладки: таблицы, сентинел,
+# данные подряд без выравнивания.
+GROUP_LODA = bytes.fromhex(
+    '4f00000002000000140000002000000000000000280000002c0000004f000000'
+    'c9000000e02e000000000000010000001b0000007b22537461636b6564426974'
+    '6d617045666665637473223a7b7d7d'
+)
 
 
 def _color_at(record: bytes, offset: int) -> tuple[int, int, int]:
@@ -46,6 +56,11 @@ def _new_objects(result: CdrDocument) -> list[CurveObject]:
         for obj in result.curve_objects()
         if result.layer_name(obj.layer_chunk) == DEFAULT_LAYER_NAME
     ]
+
+
+def test_rebuild_loda_reproduces_corel_layout() -> None:
+    """Пересборка без правок отдаёт кореловскую лоду байт-в-байт."""
+    assert _rebuild_loda(GROUP_LODA, {}) == GROUP_LODA
 
 
 def test_patch_outl_sets_width_and_color() -> None:

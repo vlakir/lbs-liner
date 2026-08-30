@@ -121,20 +121,22 @@ def build_layer_loda(name: str) -> bytes:
 
 
 def _serialize_loda_args(args: list[tuple[int, bytes]], chunk_type: int) -> bytes:
-    body = bytearray()
+    """Собрать loda в родной раскладке Corel (как _serialize_loda утилиты)."""
+    num = len(args)
+    types_at = 20 + 4 * num + 4  # после таблицы смещений идёт сентинел
+    data_at = types_at + 4 * num
     offsets = []
+    cursor = data_at
     for _, payload in args:
-        offsets.append(20 + len(body))
-        body += payload
-        if len(body) & 3:
-            body += b'\x00' * (4 - (len(body) & 3))
-    args_at = 20 + len(body)
-    types_at = args_at + 4 * len(args)
-    total = types_at + 4 * len(args)
-    out = bytearray(struct.pack('<5I', total, len(args), args_at, types_at, chunk_type))
-    out += body
-    out += struct.pack(f'<{len(args)}I', *offsets)
-    out += struct.pack(f'<{len(args)}I', *reversed([t for t, _ in args]))
+        offsets.append(cursor)
+        cursor += len(payload)
+    total = cursor
+    out = bytearray(struct.pack('<5I', total, num, 20, types_at, chunk_type))
+    out += struct.pack(f'<{num}I', *offsets)
+    out += struct.pack('<I', total)
+    out += struct.pack(f'<{num}I', *reversed([t for t, _ in args]))
+    for _, payload in args:
+        out += payload
     return bytes(out)
 
 
