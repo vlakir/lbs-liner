@@ -9,6 +9,7 @@ from shapely.geometry import LineString, Point, Polygon
 
 from lbs_liner.cdr_read import CdrDocument
 from lbs_liner.geometry import (
+    NoZoneError,
     _side_score,
     _strip_artificial_edges,
     build_double_line,
@@ -92,5 +93,22 @@ def test_foreign_layer_not_touched(contours) -> None:  # noqa: ANN001
 
 def test_classify_rejects_empty() -> None:
     """Пустой список объектов — внятная ошибка."""
-    with pytest.raises(ValueError, match='ни одного'):
+    with pytest.raises(NoZoneError, match='ни одного'):
         classify([])
+
+
+def test_classify_requires_filled_zone() -> None:
+    """Без залитой кривой зоны нет — самая большая кривая не подменяет её."""
+    from lbs_liner.cdr_read import CurveObject
+    from lbs_liner.riff import Chunk
+
+    ring = [(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0), (0.0, 0.0)]
+    unfilled = CurveObject(
+        obj_chunk=Chunk(name='LIST', list_type='obj '),
+        loda_raw=b'',
+        points=ring,
+        types=[0x0C, 0x44, 0x44, 0x44, 0x48],
+        fill_id=None,
+    )
+    with pytest.raises(NoZoneError, match='залитой зоны'):
+        classify([unfilled])

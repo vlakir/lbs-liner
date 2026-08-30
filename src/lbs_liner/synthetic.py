@@ -150,8 +150,13 @@ def build_trfd(dx: float, dy: float) -> bytes:
     return header + struct.pack('<I', 20) + bytes(arg)
 
 
-def build_sample_cdr(path: Path) -> Path:
-    """Собрать синтетический .cdr на диске и вернуть путь."""
+def build_sample_cdr(path: Path, *, filled: bool = True) -> Path:
+    """
+    Собрать синтетический .cdr на диске и вернуть путь.
+
+    С ``filled=False`` все кривые идут без заливки — образец файла,
+    в котором залитой зоны нет вовсе.
+    """
     page1 = bytearray()
     data1 = bytearray(OUTL_RECORD)
 
@@ -166,7 +171,7 @@ def build_sample_cdr(path: Path) -> Path:
         return chunk
 
     def build_obj(rings: list[Ring], spid: bytes) -> Chunk:
-        loda_ref = push(build_loda(rings, outl_id=3, fill_id=1))
+        loda_ref = push(build_loda(rings, outl_id=3, fill_id=1 if filled else 0))
         trfd_ref = push(build_trfd(0.5, 0.25))
         bbox_ref = push(struct.pack('<4i', 0, 0, 0, 0))
         obbx_ref = push(struct.pack('<8i', *([0] * 8)))

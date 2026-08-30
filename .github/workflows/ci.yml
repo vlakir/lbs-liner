@@ -47,6 +47,18 @@ jobs:
         run: uv run python scripts/verify_output.py result.cdr
         env:
           PYTHONPATH: src
+      - name: Смоук — пакетный режим
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory batch | Out-Null
+          Copy-Item sample.cdr batch/
+          Set-Location batch
+          & ../dist/lbs-liner.exe
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+      - name: Смоук — проверка пакетного результата
+        run: uv run python scripts/verify_output.py batch/sample-lines.cdr
+        env:
+          PYTHONPATH: src
       - name: Артефакт
         uses: actions/upload-artifact@v4
         with:

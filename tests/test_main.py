@@ -8,6 +8,8 @@ import pytest
 
 from main import build_parser, run
 
+from lbs_liner.synthetic import build_sample_cdr
+
 
 def test_happy_path(sample_cdr: Path, tmp_path: Path) -> None:
     """Штатный прогон: выход создан, код возврата 0."""
@@ -71,6 +73,23 @@ def test_batch_empty_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
 def test_batch_rejects_output_flag() -> None:
     """-o без входного файла — ошибка использования."""
     assert run(build_parser().parse_args(['-o', 'x.cdr'])) == 2
+
+
+def test_batch_skips_zoneless(
+    sample_cdr: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Файл без залитой зоны — не ошибка, просто пропуск."""
+    build_sample_cdr(tmp_path / 'пустой.cdr', filled=False)
+    monkeypatch.chdir(tmp_path)
+    assert run(build_parser().parse_args([])) == 0
+    assert (tmp_path / 'sample-lines.cdr').exists()
+    assert not (tmp_path / 'пустой-lines.cdr').exists()
+
+
+def test_single_zoneless_fails_plainly(tmp_path: Path) -> None:
+    """Одиночный режим на файле без зоны — код 1."""
+    path = build_sample_cdr(tmp_path / 'пустой.cdr', filled=False)
+    assert run(build_parser().parse_args([str(path)])) == 1
 
 
 def test_defaults() -> None:

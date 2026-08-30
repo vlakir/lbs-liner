@@ -16,6 +16,11 @@ from lbs_liner.cdr_read import CurveObject, Subpath
 
 logger = logging.getLogger(__name__)
 
+
+class NoZoneError(ValueError):
+    """В файле нет залитой зоны — преобразовывать нечего."""
+
+
 MM_PER_INCH = 25.4
 
 # Дегенеративные подпути (мусор на искусственных рёбрах) — меньше 1 мм².
@@ -62,10 +67,16 @@ def classify(objects: list[CurveObject]) -> ClassifiedContours:
     """
     if not objects:
         msg = 'в файле не нашлось ни одного объекта-кривой'
-        raise ValueError(msg)
+        raise NoZoneError(msg)
 
     all_candidates = [(obj, obj.world_subpaths()) for obj in objects]
-    zone_obj, zone_subpaths = max(all_candidates, key=lambda pair: _bbox_area(pair[1]))
+    # Зона — обязательно залитая кривая: без заливки «красноты» в файле нет,
+    # и превращать в двойную линию просто самую большую кривую нельзя.
+    filled = [pair for pair in all_candidates if pair[0].fill_id]
+    if not filled:
+        msg = 'в файле нет залитой зоны — преобразовывать нечего'
+        raise NoZoneError(msg)
+    zone_obj, zone_subpaths = max(filled, key=lambda pair: _bbox_area(pair[1]))
     # Чужие слои не трогаем: в работу идут только соседи зоны по слою.
     candidates = [
         pair for pair in all_candidates if pair[0].layer_chunk is zone_obj.layer_chunk
