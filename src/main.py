@@ -58,7 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
             'синяя — снаружи.'
         ),
     )
-    parser.add_argument('input', type=Path, help='входной .cdr (CorelDRAW X7+)')
+    parser.add_argument(
+        'input',
+        type=Path,
+        nargs='?',
+        default=None,
+        help=(
+            'входной .cdr (CorelDRAW X7+); без него обрабатываются все .cdr '
+            'текущей папки, кроме уже готовых *-lines.cdr'
+        ),
+    )
     parser.add_argument(
         '-o',
         '--output',
@@ -81,37 +90,79 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+LINES_SUFFIX = '-lines'
+
+
+def _convert_file(
+    input_path: Path, output_path: Path, width: float, gap: float
+) -> None:
+    """Преобразовать один файл (исключения пробрасываются наружу)."""
+    doc = CdrDocument.load(input_path)
+    objects = doc.curve_objects()
+    logger.info('%s: объектов-кривых %d', input_path.name, len(objects))
+    contours = classify(objects)
+    logger.info(
+        'контуры: открытых %d, замкнутых %d, дублей отброшено %d',
+        len(contours.open_lines),
+        len(contours.closed_rings),
+        contours.dropped_duplicates,
+    )
+    double = build_double_line(contours, gap_mm=gap)
+    logger.info(
+        'построено путей: красных %d, синих %d', len(double.red), len(double.blue)
+    )
+    write_output(
+        doc,
+        contours.zone_object,
+        double.red,
+        double.blue,
+        width_mm=width,
+        out_path=output_path,
+    )
+    logger.info('готово: %s', output_path)
+
+
+def _lines_name(input_path: Path) -> Path:
+    return input_path.with_name(f'{input_path.stem}{LINES_SUFFIX}.cdr')
+
+
+def _run_batch(folder: Path, width: float, gap: float) -> int:
+    """Обработать все .cdr папки, кроме уже готовых *-lines.cdr."""
+    inputs = sorted(
+        path
+        for path in folder.glob('*.cdr', case_sensitive=False)
+        if not path.stem.lower().endswith(LINES_SUFFIX)
+    )
+    if not inputs:
+        logger.error('в папке %s нет файлов .cdr для обработки', folder)
+        return 1
+    failures = 0
+    for path in inputs:
+        try:
+            _convert_file(path, _lines_name(path), width, gap)
+        except CdrFormatError, ValueError, OSError:
+            logger.exception('пропущен из-за ошибки: %s', path.name)
+            failures += 1
+    logger.info(
+        'обработано файлов: %d, с ошибками: %d', len(inputs) - failures, failures
+    )
+    return 1 if failures else 0
+
+
 def run(args: argparse.Namespace) -> int:
     """Выполнить преобразование; вернуть код возврата процесса."""
-    output = args.output or args.input.with_name(f'{args.input.stem}-lines.cdr')
+    if args.input is None:
+        if args.output is not None:
+            logger.error('-o работает только вместе с одним входным файлом')
+            return 2
+        return _run_batch(Path.cwd(), args.width, args.gap)
+    output = args.output or _lines_name(args.input)
     try:
-        doc = CdrDocument.load(args.input)
-        objects = doc.curve_objects()
-        logger.info('объектов-кривых в файле: %d', len(objects))
-        contours = classify(objects)
-        logger.info(
-            'контуры: открытых %d, замкнутых %d, дублей отброшено %d',
-            len(contours.open_lines),
-            len(contours.closed_rings),
-            contours.dropped_duplicates,
-        )
-        double = build_double_line(contours, gap_mm=args.gap)
-        logger.info(
-            'построено путей: красных %d, синих %d', len(double.red), len(double.blue)
-        )
-        write_output(
-            doc,
-            contours.zone_object,
-            double.red,
-            double.blue,
-            width_mm=args.width,
-            out_path=output,
-        )
+        _convert_file(args.input, output, args.width, args.gap)
     except CdrFormatError, ValueError, OSError:
         logger.exception('не получилось')
         return 1
     logger.info('двойная линия добавлена новым слоем, исходное содержимое не менялось')
-    logger.info('готово: %s', output)
     return 0
 
 

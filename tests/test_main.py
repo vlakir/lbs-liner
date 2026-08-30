@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from main import build_parser, run
 
 
@@ -34,6 +36,41 @@ def test_not_a_cdr_fails(tmp_path: Path) -> None:
     bad.write_bytes(b'\x00' * 64)
     args = build_parser().parse_args([str(bad)])
     assert run(args) == 1
+
+
+def test_batch_mode(
+    sample_cdr: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Без аргументов обрабатываются все .cdr папки, кроме *-lines."""
+    ready = tmp_path / 'старый-lines.cdr'
+    ready.write_bytes(sample_cdr.read_bytes())
+    (tmp_path / 'заметки.txt').write_text('не кордел')
+    monkeypatch.chdir(tmp_path)
+    assert run(build_parser().parse_args([])) == 0
+    assert (tmp_path / 'sample-lines.cdr').exists()
+    assert not (tmp_path / 'старый-lines-lines.cdr').exists()
+
+
+def test_batch_continues_after_error(
+    sample_cdr: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Битый файл пропускается с кодом 1, остальные обрабатываются."""
+    (tmp_path / 'битый.cdr').write_bytes(b'\x00' * 32)
+    monkeypatch.chdir(tmp_path)
+    assert run(build_parser().parse_args([])) == 1
+    assert (tmp_path / 'sample-lines.cdr').exists()
+    assert not (tmp_path / 'битый-lines.cdr').exists()
+
+
+def test_batch_empty_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Пустая папка — код 1 и внятное сообщение."""
+    monkeypatch.chdir(tmp_path)
+    assert run(build_parser().parse_args([])) == 1
+
+
+def test_batch_rejects_output_flag() -> None:
+    """-o без входного файла — ошибка использования."""
+    assert run(build_parser().parse_args(['-o', 'x.cdr'])) == 2
 
 
 def test_defaults() -> None:
