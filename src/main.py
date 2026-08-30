@@ -10,7 +10,7 @@ from pathlib import Path
 
 from lbs_liner.cdr_read import CdrDocument
 from lbs_liner.cdr_write import write_output
-from lbs_liner.geometry import build_double_line, classify
+from lbs_liner.geometry import NoZoneError, build_double_line, classify
 from lbs_liner.riff import CdrFormatError
 
 logger = logging.getLogger(__name__)
@@ -137,14 +137,21 @@ def _run_batch(folder: Path, width: float, gap: float) -> int:
         logger.error('в папке %s нет файлов .cdr для обработки', folder)
         return 1
     failures = 0
+    skipped = 0
     for path in inputs:
         try:
             _convert_file(path, _lines_name(path), width, gap)
+        except NoZoneError:
+            logger.info('%s: залитой зоны нет — пропущен', path.name)
+            skipped += 1
         except CdrFormatError, ValueError, OSError:
             logger.exception('пропущен из-за ошибки: %s', path.name)
             failures += 1
     logger.info(
-        'обработано файлов: %d, с ошибками: %d', len(inputs) - failures, failures
+        'обработано: %d, без зоны: %d, с ошибками: %d',
+        len(inputs) - failures - skipped,
+        skipped,
+        failures,
     )
     return 1 if failures else 0
 
@@ -159,11 +166,18 @@ def run(args: argparse.Namespace) -> int:
     output = args.output or _lines_name(args.input)
     try:
         _convert_file(args.input, output, args.width, args.gap)
+    except NoZoneError as exc:
+        no_zone_reason = str(exc)
     except CdrFormatError, ValueError, OSError:
         logger.exception('не получилось')
         return 1
-    logger.info('двойная линия добавлена новым слоем, исходное содержимое не менялось')
-    return 0
+    else:
+        logger.info(
+            'двойная линия добавлена новым слоем, исходное содержимое не менялось'
+        )
+        return 0
+    logger.error(no_zone_reason)
+    return 1
 
 
 def main() -> None:
