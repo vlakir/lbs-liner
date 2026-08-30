@@ -110,6 +110,7 @@ def run(args: argparse.Namespace) -> int:
     except CdrFormatError, ValueError, OSError:
         logger.exception('не получилось')
         return 1
+    logger.info('двойная линия добавлена новым слоем, исходное содержимое не менялось')
     logger.info('готово: %s', output)
     return 0
 

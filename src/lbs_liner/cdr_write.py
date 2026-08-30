@@ -1,13 +1,15 @@
 """
 Сборка выходного CDR патчем входного контейнера.
 
-Ничего не сдвигаем: новые тела чанков дописываются в хвост data-файлов,
-старые байты остаются на местах. Переписываются только root.dat
-(структура дерева) и сами data-файлы (append), плюс zip-контейнер.
+Семантика аддитивная: исходное содержимое файла не меняется вовсе —
+двойная линия добавляется отдельным новым слоем поверх существующих.
+Новые тела чанков дописываются в хвост data-файлов (ничего не
+сдвигается), переписывается только дерево root.dat и сам zip.
 """
 
 from __future__ import annotations
 
+import hashlib
 import struct
 import zipfile
 from typing import TYPE_CHECKING
@@ -15,11 +17,15 @@ from typing import TYPE_CHECKING
 from lbs_liner.cdr_read import (
     ARG_COORDS,
     ARG_FILL,
+    ARG_GUID,
+    ARG_LAYER_NAME,
     ARG_OUTL,
     COORD_UNITS_PER_INCH,
+    NO_DATA_FILE,
     CdrDocument,
     CurveObject,
     Transform,
+    parse_loda_arg_list,
 )
 from lbs_liner.riff import CdrFormatError, Chunk, serialize
 
@@ -33,9 +39,13 @@ MM_PER_INCH = 25.4
 RED_RGB = (0xFF, 0x00, 0x00)
 BLUE_RGB = (0x00, 0x00, 0xFF)
 
+DEFAULT_LAYER_NAME = 'Двойная линия'
+
 _COLOR_MODEL_RGB = 5
 _COLOR_PALETTE_PLAIN = 5
 _GUID_TAG = 0x07
+# Inline-стаб несёт 4-байтовое значение прямо в поле смещения.
+_INLINE_SIZE = 4
 
 # Ниже этого определителя матрица объекта считается вырожденной.
 _DEGENERATE_DET = 1e-12
@@ -55,38 +65,57 @@ def write_output(
     *,
     width_mm: float,
     out_path: Path,
+    layer_name: str = DEFAULT_LAYER_NAME,
 ) -> None:
-    """Собрать выходной файл: два объекта-ломаные вместо старой группы."""
-    donors = doc.curve_objects()
-    others = [o for o in donors if o.obj_chunk is not zone.obj_chunk]
-    other = others[0] if others else zone
-
+    """Дописать в файл новый слой с двумя объектами-ломаными."""
     width_units = round(width_mm / MM_PER_INCH * COORD_UNITS_PER_INCH)
     red_outl_id, blue_outl_id = _append_outline_records(doc, width_units)
 
-    grp = _group_of(zone.obj_chunk, doc.root)
-    red_obj = _build_object(doc, zone, red, red_outl_id)
-    blue_obj = _build_object(doc, other, blue, blue_outl_id, transform_from=zone)
-    grp.children = [
-        child
-        for child in grp.children
-        if not (child.is_container and child.list_type == 'obj ')
-    ]
-    grp.children.extend([red_obj, blue_obj])
+    ids = _IdFactory(doc)
+    red_obj = _build_object(doc, zone, red, red_outl_id, ids=ids, tag='red')
+    blue_obj = _build_object(doc, zone, blue, blue_outl_id, ids=ids, tag='blue')
 
     all_points = [pt for sub in red + blue for pt in sub.points]
-    _update_bbox(doc, grp, all_points)
+    group = _build_group(doc, zone, [red_obj, blue_obj], all_points, ids)
+    layer = _build_layer(doc, zone, group, layer_name, ids)
+
+    zone_layer = zone.layer_chunk
+    if zone_layer is None:
+        msg = 'объект зоны не привязан к слою'
+        raise CdrFormatError(msg)
+    gobj = _find_parent(doc.root, zone_layer)
+    if gobj is None:
+        msg = 'не нашёлся родитель слоя зоны'
+        raise CdrFormatError(msg)
+    gobj.children.insert(gobj.children.index(zone_layer) + 1, layer)
 
     _write_zip(doc, out_path)
 
 
-def _group_of(obj_chunk: Chunk, root: Chunk) -> Chunk:
-    """Родительская группа объекта (или его слой, если группы нет)."""
-    parent = _find_parent(root, obj_chunk)
-    if parent is None:
-        msg = 'не нашёлся родитель объекта зоны'
-        raise CdrFormatError(msg)
-    return parent
+class _IdFactory:
+    """Новые уникальные идентификаторы: spid/GUID хешем, usdn — max+1."""
+
+    def __init__(self, doc: CdrDocument) -> None:
+        self._doc = doc
+        self._counter = 0
+        usdns = [
+            value
+            for chunk in doc.root.find_all('usdn')
+            if (value := _inline_value(chunk)) is not None
+        ]
+        self._next_usdn = max(usdns, default=0) + 1
+
+    def sixteen_bytes(self, tag: str) -> bytes:
+        """Детерминированные 16 байт для spid или GUID слоя/группы."""
+        self._counter += 1
+        seed = f'lbs-liner:{tag}:{self._counter}'
+        return hashlib.sha256(seed.encode()).digest()[:16]
+
+    def usdn(self) -> int:
+        """Очередной пользовательский номер объекта."""
+        value = self._next_usdn
+        self._next_usdn += 1
+        return value
 
 
 def _find_parent(node: Chunk, target: Chunk) -> Chunk | None:
@@ -104,7 +133,7 @@ def _find_parent(node: Chunk, target: Chunk) -> Chunk | None:
 
 
 def _append_outline_records(doc: CdrDocument, width_units: int) -> tuple[int, int]:
-    """Дописать в data1.dat красную и синюю обводки; вернуть их id."""
+    """Дописать в data-файл красную и синюю обводки; вернуть их id."""
     otlt = _find_list(doc.root, 'otlt')
     outl_chunks = [ch for ch in otlt.children if ch.name == 'outl']
     if not outl_chunks:
@@ -220,124 +249,73 @@ def _zero_guid(record: bytearray, start: int, end: int) -> None:
         pos += 1
 
 
-# --- объекты ---------------------------------------------------------------
+# --- идентификаторы и клонирование чанков ----------------------------------
 
 
-def _build_object(
-    doc: CdrDocument,
-    donor: CurveObject,
-    subpaths: list[Subpath],
-    outl_id: int,
-    transform_from: CurveObject | None = None,
-) -> Chunk:
+def _inline_value(chunk: Chunk) -> int | None:
+    """Значение inline-стаба (файл 0xFFFFFFFF, тело упаковано в offset)."""
+    try:
+        file_index, size, offset = chunk.stub()
+    except CdrFormatError:
+        return None
+    if file_index == NO_DATA_FILE and size == _INLINE_SIZE:
+        return offset & 0xFFFFFFFF
+    return None
+
+
+def _make_inline(value: int) -> bytes:
+    """Собрать inline-стаб с 4-байтовым значением."""
+    return struct.pack('<IIQ', NO_DATA_FILE, 4, value)
+
+
+def _clone_id_chunk(doc: CdrDocument, donor: Chunk, new_body: bytes) -> Chunk:
     """
-    Новый LIST:obj: клоны служебных чанков донора + свежая геометрия.
+    Клон 16-байтового id-чанка (spid) с новым содержимым.
 
-    Точки пишутся в локальном фрейме объекта-образца (transform_from
-    или сам донор), trfd клонируется от него же.
+    У реальных файлов тело вынесено по стабу — тогда новое тело
+    дописывается в тот же data-файл; иначе кладём байты прямо в payload.
     """
-    frame = transform_from or donor
-    local = _to_local(subpaths, frame.transform)
-    loda_payload = _rebuild_loda(frame.loda_raw, local, outl_id)
-
-    page_file = _page_file_index(donor)
-    loda_stub = Chunk(name='loda')
-    offset = len(doc.data[page_file])
-    doc.data[page_file] += loda_payload
-    loda_stub.set_stub(page_file, len(loda_payload), offset)
-
-    children: list[Chunk] = []
-    for child in donor.obj_chunk.children:
-        if child.is_container and child.list_type == 'lgob':
-            lgob_children: list[Chunk] = [loda_stub]
-            lgob_children.extend(
-                Chunk(name=sub.name, payload=sub.payload)
-                if not sub.is_container
-                else _clone_container(sub, frame)
-                for sub in child.children
-                if sub.name != 'loda'
-            )
-            children.append(
-                Chunk(name='LIST', list_type='lgob', children=lgob_children)
-            )
-        else:
-            children.append(Chunk(name=child.name, payload=child.payload))
-    obj = Chunk(name='LIST', list_type='obj ', children=children)
-
-    world_points = [pt for sub in subpaths for pt in sub.points]
-    _update_bbox(doc, obj, world_points)
-    return obj
+    chunk = Chunk(name=donor.name)
+    try:
+        file_index, size, _ = donor.stub()
+    except CdrFormatError:
+        file_index, size = None, 0
+    if file_index is not None and file_index in doc.data and size == len(new_body):
+        offset = len(doc.data[file_index])
+        doc.data[file_index] += new_body
+        chunk.set_stub(file_index, len(new_body), offset)
+    else:
+        chunk.payload = new_body
+    return chunk
 
 
-def _clone_container(container: Chunk, frame: CurveObject) -> Chunk:
-    """Клон контейнера (trfl и т.п.): trfd берём от объекта-образца."""
-    cloned = []
-    for child in container.children:
-        if child.name == 'trfd':
-            source = frame.obj_chunk.find_all('trfd')
-            payload = source[0].payload if source else child.payload
-            cloned.append(Chunk(name='trfd', payload=payload))
-        elif child.is_container:
-            cloned.append(_clone_container(child, frame))
-        else:
-            cloned.append(Chunk(name=child.name, payload=child.payload))
-    return Chunk(name=container.name, list_type=container.list_type, children=cloned)
-
-
-def _page_file_index(donor: CurveObject) -> int:
-    """Data-файл, где лежит loda донора, — туда же пишем новые лоды."""
-    lodas = donor.obj_chunk.find_all('loda')
-    return lodas[0].stub()[0]
-
-
-def _to_local(
-    subpaths: list[Subpath], transform: Transform
-) -> list[tuple[list[Point], bool]]:
-    """Мировые точки → локальный фрейм (обратная матрица trfd)."""
-    v0, v1, x0, v3, v4, y0 = transform
-    det = v0 * v4 - v1 * v3
-    if abs(det) < _DEGENERATE_DET:
-        msg = 'вырожденная матрица трансформации объекта-образца'
+def _append_loda(doc: CdrDocument, template: Chunk, payload: bytes) -> Chunk:
+    """Новое тело loda в data-файл шаблонного стаба; вернуть новый стаб."""
+    file_index = template.stub()[0]
+    if file_index not in doc.data:
+        msg = 'лода-шаблон указывает в несуществующий data-файл'
         raise CdrFormatError(msg)
-    out = []
-    for sub in subpaths:
-        local = []
-        for x, y in sub.points:
-            dx, dy = x - x0, y - y0
-            local.append(((v4 * dx - v1 * dy) / det, (-v3 * dx + v0 * dy) / det))
-        out.append((local, sub.closed))
-    return out
+    chunk = Chunk(name='loda')
+    offset = len(doc.data[file_index])
+    doc.data[file_index] += payload
+    chunk.set_stub(file_index, len(payload), offset)
+    return chunk
 
 
-def _rebuild_loda(
-    donor: bytes, subpaths: list[tuple[list[Point], bool]], outl_id: int
-) -> bytes:
+def _rebuild_loda(donor: bytes, overrides: dict[int, bytes | None]) -> bytes:
     """
-    Пересобрать loda: новая геометрия, новая обводка, без заливки.
+    Пересобрать loda, заменив или убрав отдельные аргументы.
 
-    Прочие аргументы донора переносятся байт-в-байт — Corel ждёт их
-    состава, а нам их семантика не нужна.
+    Не перечисленные в overrides аргументы переносятся байт-в-байт —
+    Corel ждёт их состава, а нам их семантика не нужна.
     """
-    _, num_args, start_args, start_types, chunk_type = struct.unpack_from(
-        '<5I', donor, 0
-    )
-    offsets = struct.unpack_from(f'<{num_args}I', donor, start_args)
-    types = list(reversed(struct.unpack_from(f'<{num_args}I', donor, start_types)))
-    bounds = sorted([*offsets, start_args, start_types, len(donor)])
-
-    args: list[tuple[int, bytes]] = []
-    for offset, arg_type in sorted(zip(offsets, types, strict=True)):
-        end = min(b for b in bounds if b > offset)
-        args.append((arg_type, donor[offset:end]))
-
+    chunk_type = struct.unpack_from('<5I', donor, 0)[4]
     rebuilt: list[tuple[int, bytes]] = []
-    for arg_type, payload in args:
-        if arg_type == ARG_FILL:
-            continue
-        if arg_type == ARG_COORDS:
-            rebuilt.append((ARG_COORDS, _coords_blob(subpaths)))
-        elif arg_type == ARG_OUTL:
-            rebuilt.append((ARG_OUTL, struct.pack('<I', outl_id)))
+    for arg_type, payload in parse_loda_arg_list(donor):
+        if arg_type in overrides:
+            replacement = overrides[arg_type]
+            if replacement is not None:
+                rebuilt.append((arg_type, replacement))
         else:
             rebuilt.append((arg_type, payload))
 
@@ -361,6 +339,185 @@ def _rebuild_loda(
         f'<{len(rebuilt)}I', *reversed([arg_type for arg_type, _ in rebuilt])
     )
     return bytes(out)
+
+
+# --- объекты, группа, слой -------------------------------------------------
+
+
+def _build_object(
+    doc: CdrDocument,
+    donor: CurveObject,
+    subpaths: list[Subpath],
+    outl_id: int,
+    *,
+    ids: _IdFactory,
+    tag: str,
+) -> Chunk:
+    """
+    Новый LIST:obj по образцу объекта зоны.
+
+    Служебные чанки клонируются от донора (spid/usdn получают новые
+    значения), геометрия и обводка — свои, заливки нет. Точки пишутся
+    в локальном фрейме донора, trfd делится с ним.
+    """
+    donor_lodas = donor.obj_chunk.find_all('loda')
+    loda_payload = _rebuild_loda(
+        donor.loda_raw,
+        {
+            ARG_COORDS: _coords_blob(_to_local(subpaths, donor.transform)),
+            ARG_FILL: None,
+            ARG_OUTL: struct.pack('<I', outl_id),
+        },
+    )
+    loda_stub = _append_loda(doc, donor_lodas[0], loda_payload)
+
+    children: list[Chunk] = []
+    for child in donor.obj_chunk.children:
+        if child.is_container and child.list_type == 'lgob':
+            lgob_children: list[Chunk] = [loda_stub]
+            lgob_children.extend(
+                _clone_subtree(sub) for sub in child.children if sub.name != 'loda'
+            )
+            children.append(
+                Chunk(name='LIST', list_type='lgob', children=lgob_children)
+            )
+        elif child.name == 'spid':
+            children.append(
+                _clone_id_chunk(doc, child, ids.sixteen_bytes(f'spid-{tag}'))
+            )
+        elif child.name == 'usdn':
+            children.append(Chunk(name='usdn', payload=_make_inline(ids.usdn())))
+        else:
+            children.append(_clone_subtree(child))
+    obj = Chunk(name='LIST', list_type='obj ', children=children)
+
+    world_points = [pt for sub in subpaths for pt in sub.points]
+    _update_bbox(doc, obj, world_points)
+    return obj
+
+
+def _build_group(
+    doc: CdrDocument,
+    zone: CurveObject,
+    objects: list[Chunk],
+    world_points: list[Point],
+    ids: _IdFactory,
+) -> Chunk:
+    """Новая группа по образцу группы зоны, с новыми id и своими объектами."""
+    donor_group = _find_parent(doc.root, zone.obj_chunk)
+    if donor_group is None or donor_group.list_type.strip() != 'grp':
+        # Зона лежит прямо в слое — обойдёмся без группы.
+        return objects[0] if len(objects) == 1 else _plain_group(objects)
+    children: list[Chunk] = []
+    for child in donor_group.children:
+        if child.is_container and child.list_type == 'obj ':
+            continue
+        if child.is_container and child.list_type == 'lgob':
+            children.append(_rebuild_lgob(doc, child, ids, 'group'))
+        elif child.name == 'spid':
+            children.append(
+                _clone_id_chunk(doc, child, ids.sixteen_bytes('spid-group'))
+            )
+        elif child.name == 'usdn':
+            children.append(Chunk(name='usdn', payload=_make_inline(ids.usdn())))
+        else:
+            children.append(_clone_subtree(child))
+    children.extend(objects)
+    group = Chunk(name='LIST', list_type=donor_group.list_type, children=children)
+    _update_bbox(doc, group, world_points)
+    return group
+
+
+def _plain_group(objects: list[Chunk]) -> Chunk:
+    return Chunk(name='LIST', list_type='grp ', children=list(objects))
+
+
+def _build_layer(
+    doc: CdrDocument,
+    zone: CurveObject,
+    content: Chunk,
+    layer_name: str,
+    ids: _IdFactory,
+) -> Chunk:
+    """Новый слой по образцу слоя зоны: своё имя, свои id, наша группа."""
+    donor_layer = zone.layer_chunk
+    if donor_layer is None:
+        msg = 'объект зоны не привязан к слою'
+        raise CdrFormatError(msg)
+    name_bytes = layer_name.encode('utf-16-le') + b'\x00\x00'
+    children: list[Chunk] = []
+    for child in donor_layer.children:
+        if child.is_container and child.list_type == 'lgob':
+            children.append(
+                _rebuild_lgob(doc, child, ids, 'layer', {ARG_LAYER_NAME: name_bytes})
+            )
+        elif child.is_container:
+            continue  # содержимое слоя-донора (группы, объекты) не тащим
+        elif child.name == 'spid':
+            children.append(
+                _clone_id_chunk(doc, child, ids.sixteen_bytes('spid-layer'))
+            )
+        else:
+            children.append(Chunk(name=child.name, payload=child.payload))
+    children.append(content)
+    return Chunk(name='LIST', list_type=donor_layer.list_type, children=children)
+
+
+def _rebuild_lgob(
+    doc: CdrDocument,
+    donor_lgob: Chunk,
+    ids: _IdFactory,
+    tag: str,
+    extra_overrides: dict[int, bytes | None] | None = None,
+) -> Chunk:
+    """Клон LIST:lgob с пересобранной loda (новый GUID + правки)."""
+    children: list[Chunk] = []
+    for child in donor_lgob.children:
+        if child.name == 'loda':
+            overrides: dict[int, bytes | None] = {
+                ARG_GUID: ids.sixteen_bytes(f'guid-{tag}')
+            }
+            if extra_overrides:
+                overrides.update(extra_overrides)
+            donor_body = doc.resolve(child)
+            args = dict(parse_loda_arg_list(donor_body))
+            if ARG_GUID not in args:
+                overrides.pop(ARG_GUID)
+            payload = _rebuild_loda(donor_body, overrides)
+            children.append(_append_loda(doc, child, payload))
+        else:
+            children.append(_clone_subtree(child))
+    return Chunk(name='LIST', list_type='lgob', children=children)
+
+
+def _clone_subtree(chunk: Chunk) -> Chunk:
+    """Глубокая копия чанка; стабы остаются указывать на прежние тела."""
+    if chunk.is_container:
+        return Chunk(
+            name=chunk.name,
+            list_type=chunk.list_type,
+            children=[_clone_subtree(child) for child in chunk.children],
+        )
+    return Chunk(name=chunk.name, payload=chunk.payload)
+
+
+def _to_local(
+    subpaths: list[Subpath], transform: Transform
+) -> list[tuple[list[Point], bool]]:
+    """Мировые точки → локальный фрейм (обратная матрица trfd)."""
+    v0, v1, x0, v3, v4, y0 = transform
+    det = v0 * v4 - v1 * v3
+    if abs(det) < _DEGENERATE_DET:
+        msg = 'вырожденная матрица трансформации объекта-образца'
+        raise CdrFormatError(msg)
+    out = []
+    for sub in subpaths:
+        local = []
+        for x, y in sub.points:
+            dx, dy = x - x0, y - y0
+            local.append(((v4 * dx - v1 * dy) / det, (-v3 * dx + v0 * dy) / det))
+        out.append((local, sub.closed))
+    return out
 
 
 def _coords_blob(subpaths: list[tuple[list[Point], bool]]) -> bytes:

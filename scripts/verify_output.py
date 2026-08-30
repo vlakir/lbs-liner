@@ -2,7 +2,8 @@
 Проверить результат работы утилиты на синтетическом образце.
 
 Смоук собранного исполняемого файла: сам exe запускает шаг CI, а этот
-скрипт разбирает выходной .cdr и сверяет структуру.
+скрипт разбирает выходной .cdr и сверяет структуру: исходные объекты
+целы, двойная линия добавлена отдельным новым слоем.
 
 Запуск: PYTHONPATH=src uv run python scripts/verify_output.py <результат.cdr>
 """
@@ -13,29 +14,44 @@ import sys
 from pathlib import Path
 
 from lbs_liner.cdr_read import CdrDocument
+from lbs_liner.cdr_write import DEFAULT_LAYER_NAME
 
 # argv: имя скрипта + путь к результату.
 _EXPECTED_ARGC = 2
-# В выходе ровно два объекта: красная линия и синяя.
-_EXPECTED_OBJECTS = 2
+# В новом слое ровно два объекта: красная линия и синяя.
+_EXPECTED_NEW = 2
+# Исходных кривых в синтетическом образце четыре, и все с заливкой.
+_EXPECTED_OLD = 4
 
 
 def find_problems(doc: CdrDocument) -> list[str]:
     """Собрать список расхождений выходного файла с ожидаемой структурой."""
     problems = []
     objects = doc.curve_objects()
-    if len(objects) != _EXPECTED_OBJECTS:
-        return [f'ожидалось 2 объекта, найдено {len(objects)}']
-    for obj in objects:
+    new = [
+        obj for obj in objects if doc.layer_name(obj.layer_chunk) == DEFAULT_LAYER_NAME
+    ]
+    old = [
+        obj for obj in objects if doc.layer_name(obj.layer_chunk) != DEFAULT_LAYER_NAME
+    ]
+    if len(new) != _EXPECTED_NEW:
+        problems.append(f'в слое «{DEFAULT_LAYER_NAME}» {len(new)} объектов, ждали 2')
+    if len(old) != _EXPECTED_OLD:
+        problems.append(f'исходных объектов {len(old)}, ждали {_EXPECTED_OLD}')
+    if any(obj.fill_id is None for obj in old):
+        problems.append('у исходного объекта пропала заливка')
+    for obj in new:
         if obj.fill_id is not None:
-            problems.append('у объекта осталась заливка')
+            problems.append('у нового объекта осталась заливка')
         if obj.outl_id is None:
-            problems.append('у объекта нет обводки')
+            problems.append('у нового объекта нет обводки')
         open_subs = [sub for sub in obj.world_subpaths() if not sub.closed]
         if len(open_subs) != 1:
-            problems.append(f'ожидалась одна открытая линия, найдено {len(open_subs)}')
-    if len({obj.outl_id for obj in objects}) != _EXPECTED_OBJECTS:
-        problems.append('обводки объектов совпадают — красная и синяя не различены')
+            problems.append(f'ждали одну открытую линию, нашли {len(open_subs)}')
+    if len({obj.outl_id for obj in new}) != _EXPECTED_NEW:
+        problems.append(
+            'обводки новых объектов совпадают — красная и синяя не различены'
+        )
     return problems
 
 
@@ -48,7 +64,9 @@ def main() -> int:
     if problems:
         sys.stdout.write('\n'.join(problems) + '\n')
         return 1
-    sys.stdout.write('смоук пройден: два объекта, открытая линия, разные обводки\n')
+    sys.stdout.write(
+        'смоук пройден: исходные объекты целы, новый слой несёт две линии\n'
+    )
     return 0
 
 

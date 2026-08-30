@@ -12,20 +12,28 @@ from lbs_liner.riff import CdrFormatError
 
 
 def test_load_and_parse_objects(sample_cdr: Path) -> None:
-    """Из контейнера достаются все три объекта-кривые."""
+    """Из контейнера достаются все четыре объекта-кривые."""
     doc = CdrDocument.load(sample_cdr)
     objects = doc.curve_objects()
-    assert len(objects) == 3
+    assert len(objects) == 4
     for obj in objects:
         assert obj.outl_id == 3
         assert obj.fill_id == 1
         assert obj.transform == (1.0, 0.0, 0.5, 0.0, 1.0, 0.25)
 
 
+def test_objects_know_their_layers(sample_cdr: Path) -> None:
+    """Каждый объект привязан к слою, имена слоёв читаются."""
+    doc = CdrDocument.load(sample_cdr)
+    names = {doc.layer_name(obj.layer_chunk) for obj in doc.curve_objects()}
+    assert names == {'Заливка', 'Топооснова'}
+
+
 def test_world_subpaths_applies_transform(sample_cdr: Path) -> None:
     """Мировые координаты сдвинуты матрицей trfd."""
     doc = CdrDocument.load(sample_cdr)
-    blob = doc.curve_objects()[0]  # пятно вокруг (-2, 1)
+    # пятно вокруг (-2, 1) — единственная кривая с отрицательными x
+    blob = next(o for o in doc.curve_objects() if o.points[0][0] < 0)
     subs = blob.world_subpaths()
     assert len(subs) == 1
     assert subs[0].closed

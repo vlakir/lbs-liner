@@ -83,6 +83,13 @@ def test_isolated_blob_red_inside(contours) -> None:  # noqa: ANN001
     assert Polygon(red[0].points).area < Polygon(blue[0].points).area
 
 
+def test_foreign_layer_not_touched(contours) -> None:  # noqa: ANN001
+    """Кривая с постороннего слоя не попадает в контуры."""
+    for ring in contours.closed_rings:
+        xs = [x for x, _ in ring]
+        assert max(xs) < 15  # чужой квадрат живёт вокруг (20, 20)
+
+
 def test_classify_rejects_empty() -> None:
     """Пустой список объектов — внятная ошибка."""
     with pytest.raises(ValueError, match='ни одного'):
