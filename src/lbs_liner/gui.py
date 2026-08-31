@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk
+from tkinter import font, ttk
 
 from lbs_liner.convert import convert_file, lines_name
 from lbs_liner.dialogs import pick_open_file, pick_save_file
@@ -16,6 +16,8 @@ from lbs_liner.settings import load_settings, save_settings
 logger = logging.getLogger(__name__)
 
 _PADDING = 6
+# Ширина полей путей в символах — общая мера для любых шрифтов и DPI.
+_PATH_CHARS = 60
 _ERROR_COLOR = '#a00000'
 
 
@@ -26,8 +28,9 @@ class App(tk.Tk):
         super().__init__()
         self.title('lbs-liner — двойная линия из заливки')
         self.resizable(width=True, height=False)
-        # Пошире по умолчанию, чтобы длинные пути помещались целиком.
-        self.minsize(900, 0)
+        # Размеры пляшут от шрифта платформы, а не от пикселей: поля путей
+        # задаются числом символов, окно само подстраивается под шрифт.
+        char_width = font.nametofont('TkDefaultFont').measure('0')
 
         saved = load_settings()
         self.input_var = tk.StringVar()
@@ -44,7 +47,7 @@ class App(tk.Tk):
         ttk.Label(body, text='Входной .cdr:').grid(
             row=0, column=0, sticky='w', pady=_PADDING
         )
-        ttk.Entry(body, textvariable=self.input_var).grid(
+        ttk.Entry(body, textvariable=self.input_var, width=_PATH_CHARS).grid(
             row=0, column=1, sticky='ew', padx=_PADDING, pady=_PADDING
         )
         ttk.Button(body, text='Выбрать…', command=self.choose_input).grid(
@@ -54,7 +57,7 @@ class App(tk.Tk):
         ttk.Label(body, text='Сохранить в:').grid(
             row=1, column=0, sticky='w', pady=_PADDING
         )
-        ttk.Entry(body, textvariable=self.output_var).grid(
+        ttk.Entry(body, textvariable=self.output_var, width=_PATH_CHARS).grid(
             row=1, column=1, sticky='ew', padx=_PADDING, pady=_PADDING
         )
         ttk.Button(body, text='Обзор…', command=self.choose_output).grid(
@@ -81,11 +84,13 @@ class App(tk.Tk):
         # Кнопка — по центру нижней зоны: воздух до неё равен воздуху
         # после (учитывая строку статуса и рамку окна).
         self.convert_button.grid(
-            row=3, column=0, columnspan=3, pady=(_PADDING * 5, _PADDING * 2)
+            row=3, column=0, columnspan=3, pady=(_PADDING * 3, _PADDING)
         )
 
         self.status_label = ttk.Label(
-            body, textvariable=self.status_var, wraplength=880
+            body,
+            textvariable=self.status_var,
+            wraplength=char_width * (_PATH_CHARS + 12),
         )
         self.status_label.grid(row=4, column=0, columnspan=3, sticky='w')
 
