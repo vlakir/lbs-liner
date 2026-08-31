@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import tkinter as tk
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -11,6 +10,7 @@ import pytest
 
 from lbs_liner.cdr_read import CdrDocument
 from lbs_liner.cdr_write import DEFAULT_LAYER_NAME
+from lbs_liner.dialogs import _zenity
 from lbs_liner.gui import App, _parse_non_negative, _parse_number, _parse_positive
 
 if TYPE_CHECKING:
@@ -29,12 +29,7 @@ def app() -> Iterator[App]:
     except tk.TclError:
         pytest.skip('нет дисплея для tkinter')
     yield window
-    logging.getLogger().removeHandler(window._log_handler)  # noqa: SLF001
     window.destroy()
-
-
-def _log_text(window: App) -> str:
-    return window.log_widget.get('1.0', 'end')
 
 
 def test_convert_via_gui(app: App, sample_cdr: Path) -> None:
@@ -51,14 +46,23 @@ def test_convert_via_gui(app: App, sample_cdr: Path) -> None:
         if result.layer_name(obj.layer_chunk) == DEFAULT_LAYER_NAME
     ]
     assert len(new_objects) == 2
-    assert 'готово' in _log_text(app)
+    assert 'Готово' in app.status_var.get()
+
+
+def test_button_follows_input(app: App, sample_cdr: Path) -> None:
+    """Кнопка активируется только когда выбран существующий файл."""
+    assert str(app.convert_button['state']) == 'disabled'
+    app.input_var.set(str(sample_cdr))
+    assert str(app.convert_button['state']) == 'normal'
+    app.input_var.set(str(sample_cdr) + '.нет')
+    assert str(app.convert_button['state']) == 'disabled'
 
 
 def test_missing_input_reports(app: App, tmp_path: Path) -> None:
-    """Пустой или несуществующий вход — сообщение, не падение."""
+    """Несуществующий вход — сообщение в статусе, не падение."""
     app.input_var.set(str(tmp_path / 'нет.cdr'))
     app.convert()
-    assert 'существующий' in _log_text(app)
+    assert 'существующий' in app.status_var.get()
 
 
 def test_invalid_width_reports(app: App, sample_cdr: Path) -> None:
@@ -66,7 +70,7 @@ def test_invalid_width_reports(app: App, sample_cdr: Path) -> None:
     app.input_var.set(str(sample_cdr))
     app.red_var.set('толсто')
     app.convert()
-    assert 'не число' in _log_text(app)
+    assert 'не число' in app.status_var.get()
     assert not sample_cdr.with_name('sample-lines.cdr').exists()
 
 
@@ -74,22 +78,9 @@ def test_choose_input_autofills_output(
     app: App, sample_cdr: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Выбор входа подставляет имя выхода с постфиксом -lines."""
-    monkeypatch.setattr(
-        'lbs_liner.gui.filedialog.askopenfilename', lambda **_: str(sample_cdr)
-    )
+    monkeypatch.setattr('lbs_liner.gui.pick_open_file', lambda: str(sample_cdr))
     app.choose_input()
     assert app.output_var.get().endswith('sample-lines.cdr')
-
-
-def test_batch_via_gui(
-    app: App, sample_cdr: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Кнопка «Обработать папку» гонит пакетный режим по выбранной папке."""
-    monkeypatch.setattr(
-        'lbs_liner.gui.filedialog.askdirectory', lambda **_: str(tmp_path)
-    )
-    app.convert_folder()
-    assert (tmp_path / 'sample-lines.cdr').exists()
 
 
 def test_parameters_survive_restart(
@@ -104,7 +95,6 @@ def test_parameters_survive_restart(
     first.blue_var.set('1')
     first.gap_var.set('0.25')
     first.on_close()
-    logging.getLogger().removeHandler(first._log_handler)  # noqa: SLF001
 
     second = App()
     try:
@@ -112,8 +102,17 @@ def test_parameters_survive_restart(
         assert second.blue_var.get() == '1'
         assert second.gap_var.get() == '0.25'
     finally:
-        logging.getLogger().removeHandler(second._log_handler)  # noqa: SLF001
         second.destroy()
+
+
+def test_zenity_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Хелпер zenity: нет бинаря — None, отмена — '', успех — вывод."""
+    monkeypatch.setattr('lbs_liner.dialogs.shutil.which', lambda _name: None)
+    assert _zenity(['--file-selection']) is None
+    monkeypatch.setattr('lbs_liner.dialogs.shutil.which', lambda _name: '/bin/false')
+    assert _zenity([]) == ''
+    monkeypatch.setattr('lbs_liner.dialogs.shutil.which', lambda _name: '/bin/echo')
+    assert _zenity(['выбранный.cdr']) == 'выбранный.cdr'
 
 
 def test_parsers() -> None:

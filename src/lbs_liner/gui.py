@@ -1,17 +1,14 @@
-"""Простое окно поверх конвейера: выбор файла, параметры, лог."""
+"""Простое окно поверх конвейера: файл, параметры, одна кнопка."""
 
 from __future__ import annotations
 
 import logging
 import tkinter as tk
 from pathlib import Path
-from tkinter import filedialog, ttk
+from tkinter import ttk
 
-from lbs_liner.convert import (
-    convert_file,
-    lines_name,
-    run_batch,
-)
+from lbs_liner.convert import convert_file, lines_name
+from lbs_liner.dialogs import pick_open_file, pick_save_file
 from lbs_liner.geometry import NoZoneError
 from lbs_liner.riff import CdrFormatError
 from lbs_liner.settings import load_settings, save_settings
@@ -19,23 +16,7 @@ from lbs_liner.settings import load_settings, save_settings
 logger = logging.getLogger(__name__)
 
 _PADDING = 6
-
-
-class TextLogHandler(logging.Handler):
-    """Логи конвейера — прямо в текстовое поле окна."""
-
-    def __init__(self, widget: tk.Text) -> None:
-        super().__init__()
-        self.widget = widget
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """Дописать строку в конец поля и прокрутить к ней."""
-        message = self.format(record)
-        self.widget.configure(state='normal')
-        self.widget.insert('end', message + '\n')
-        self.widget.configure(state='disabled')
-        self.widget.see('end')
-        self.widget.update_idletasks()
+_ERROR_COLOR = '#a00000'
 
 
 class App(tk.Tk):
@@ -44,7 +25,9 @@ class App(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title('lbs-liner — двойная линия из заливки')
-        self.minsize(560, 420)
+        self.resizable(width=True, height=False)
+        # Пошире по умолчанию, чтобы длинные пути помещались целиком.
+        self.minsize(900, 0)
 
         saved = load_settings()
         self.input_var = tk.StringVar()
@@ -52,29 +35,34 @@ class App(tk.Tk):
         self.red_var = tk.StringVar(value=_pretty(saved['red_width']))
         self.blue_var = tk.StringVar(value=_pretty(saved['blue_width']))
         self.gap_var = tk.StringVar(value=_pretty(saved['gap']))
+        self.status_var = tk.StringVar()
 
-        body = ttk.Frame(self, padding=_PADDING)
+        body = ttk.Frame(self, padding=_PADDING * 2)
         body.pack(fill='both', expand=True)
         body.columnconfigure(1, weight=1)
 
-        ttk.Label(body, text='Входной .cdr:').grid(row=0, column=0, sticky='w')
+        ttk.Label(body, text='Входной .cdr:').grid(
+            row=0, column=0, sticky='w', pady=_PADDING
+        )
         ttk.Entry(body, textvariable=self.input_var).grid(
-            row=0, column=1, sticky='ew', padx=_PADDING
+            row=0, column=1, sticky='ew', padx=_PADDING, pady=_PADDING
         )
         ttk.Button(body, text='Выбрать…', command=self.choose_input).grid(
-            row=0, column=2
+            row=0, column=2, pady=_PADDING
         )
 
-        ttk.Label(body, text='Сохранить в:').grid(row=1, column=0, sticky='w')
+        ttk.Label(body, text='Сохранить в:').grid(
+            row=1, column=0, sticky='w', pady=_PADDING
+        )
         ttk.Entry(body, textvariable=self.output_var).grid(
-            row=1, column=1, sticky='ew', padx=_PADDING
+            row=1, column=1, sticky='ew', padx=_PADDING, pady=_PADDING
         )
         ttk.Button(body, text='Обзор…', command=self.choose_output).grid(
-            row=1, column=2
+            row=1, column=2, pady=_PADDING
         )
 
         params = ttk.Frame(body)
-        params.grid(row=2, column=0, columnspan=3, sticky='w', pady=_PADDING)
+        params.grid(row=2, column=0, columnspan=3, sticky='w', pady=_PADDING * 2)
         for column, (label, var) in enumerate(
             [
                 ('Красная, pt:', self.red_var),
@@ -87,49 +75,35 @@ class App(tk.Tk):
                 row=0, column=2 * column + 1, padx=(2, _PADDING * 2)
             )
 
-        buttons = ttk.Frame(body)
-        buttons.grid(row=3, column=0, columnspan=3, sticky='w')
         self.convert_button = ttk.Button(
-            buttons, text='Преобразовать файл', command=self.convert
+            body, text='Преобразовать', command=self.convert, state='disabled'
         )
-        self.convert_button.grid(row=0, column=0, padx=(0, _PADDING))
-        self.batch_button = ttk.Button(
-            buttons, text='Обработать папку…', command=self.convert_folder
+        # Кнопка — по центру нижней зоны: воздух до неё равен воздуху
+        # после (учитывая строку статуса и рамку окна).
+        self.convert_button.grid(
+            row=3, column=0, columnspan=3, pady=(_PADDING * 5, _PADDING * 2)
         )
-        self.batch_button.grid(row=0, column=1)
 
-        self.log_widget = tk.Text(body, height=12, state='disabled', wrap='word')
-        self.log_widget.grid(
-            row=4, column=0, columnspan=3, sticky='nsew', pady=_PADDING
+        self.status_label = ttk.Label(
+            body, textvariable=self.status_var, wraplength=880
         )
-        body.rowconfigure(4, weight=1)
+        self.status_label.grid(row=4, column=0, columnspan=3, sticky='w')
 
-        handler = TextLogHandler(self.log_widget)
-        handler.setFormatter(logging.Formatter('%(message)s'))
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
-        self._log_handler = handler
+        self.input_var.trace_add('write', self._refresh_button)
         self.protocol('WM_DELETE_WINDOW', self.on_close)
 
     # --- обработчики -------------------------------------------------------
 
     def choose_input(self) -> None:
         """Выбрать входной файл; выход подставляется автоматически."""
-        chosen = filedialog.askopenfilename(
-            title='Входной файл CorelDRAW',
-            filetypes=[('CorelDRAW', '*.cdr'), ('Все файлы', '*.*')],
-        )
+        chosen = pick_open_file()
         if chosen:
             self.input_var.set(chosen)
             self.output_var.set(str(lines_name(Path(chosen))))
 
     def choose_output(self) -> None:
         """Выбрать имя выходного файла."""
-        chosen = filedialog.asksaveasfilename(
-            title='Куда сохранить результат',
-            defaultextension='.cdr',
-            filetypes=[('CorelDRAW', '*.cdr')],
-        )
+        chosen = pick_save_file(self.output_var.get().strip())
         if chosen:
             self.output_var.set(chosen)
 
@@ -138,42 +112,32 @@ class App(tk.Tk):
         params = self._params()
         if params is None:
             return
-        red_pt, blue_pt, gap_pt = params
         input_path = Path(self.input_var.get().strip())
-        if not self.input_var.get().strip() or not input_path.is_file():
-            logger.error('выбери существующий входной .cdr')
+        if not input_path.is_file():
+            self._status('Выбери существующий входной .cdr', error=True)
             return
         output_path = (
             Path(self.output_var.get().strip())
             if self.output_var.get().strip()
             else lines_name(input_path)
         )
-        no_zone: str | None = None
-        self._busy(active=True)
+        self.convert_button.configure(state='disabled')
+        self._status('Преобразую…')
+        self.update_idletasks()
+        problem: str | None = None
         try:
-            convert_file(input_path, output_path, red_pt, blue_pt, gap_pt)
+            convert_file(input_path, output_path, *params)
         except NoZoneError as exc:
-            no_zone = str(exc)
-        except CdrFormatError, ValueError, OSError:
+            problem = str(exc)
+        except (CdrFormatError, ValueError, OSError) as exc:
             logger.exception('не получилось')
+            problem = f'Не получилось: {exc}'
         finally:
-            self._busy(active=False)
-        if no_zone:
-            logger.error(no_zone)
-
-    def convert_folder(self) -> None:
-        """Обработать все .cdr выбранной папки."""
-        params = self._params()
-        if params is None:
-            return
-        chosen = filedialog.askdirectory(title='Папка с .cdr')
-        if not chosen:
-            return
-        self._busy(active=True)
-        try:
-            run_batch(Path(chosen), *params)
-        finally:
-            self._busy(active=False)
+            self._refresh_button()
+        if problem:
+            self._status(problem, error=True)
+        else:
+            self._status(f'Готово: {output_path}')
 
     def on_close(self) -> None:
         """Запомнить параметры и закрыть окно."""
@@ -193,14 +157,16 @@ class App(tk.Tk):
             save_settings(red_pt, blue_pt, gap_pt)
             return red_pt, blue_pt, gap_pt
         if not quiet:
-            logger.error(problem)
+            self._status(problem, error=True)
         return None
 
-    def _busy(self, *, active: bool) -> None:
-        state = 'disabled' if active else 'normal'
-        self.convert_button.configure(state=state)
-        self.batch_button.configure(state=state)
-        self.update_idletasks()
+    def _refresh_button(self, *_args: str) -> None:
+        ready = Path(self.input_var.get().strip()).is_file()
+        self.convert_button.configure(state='normal' if ready else 'disabled')
+
+    def _status(self, text: str, *, error: bool = False) -> None:
+        self.status_var.set(text)
+        self.status_label.configure(foreground=_ERROR_COLOR if error else '')
 
 
 def _pretty(value: float) -> str:
