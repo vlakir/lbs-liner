@@ -37,14 +37,15 @@ def _color_at(record: bytes, offset: int) -> tuple[int, int, int]:
 def _convert(sample_cdr: Path, tmp_path: Path) -> tuple[CdrDocument, Path]:
     doc = CdrDocument.load(sample_cdr)
     contours = classify(doc.curve_objects())
-    double = build_double_line(contours, gap_mm=2.0)
+    double = build_double_line(contours, red_offset_in=0.02, blue_offset_in=0.015)
     out_path = tmp_path / 'out.cdr'
     write_output(
         doc,
         contours.zone_object,
         double.red,
         double.blue,
-        width_mm=0.5,
+        red_width_pt=3.0,
+        blue_width_pt=2.0,
         out_path=out_path,
     )
     return CdrDocument.load(out_path), out_path
@@ -131,8 +132,8 @@ def test_new_layer_holds_two_styled_objects(sample_cdr: Path, tmp_path: Path) ->
         modern = _outl_block(record, wanted_id=1)
         assert modern is not None
         colors.add(_color_at(record, modern + 18 + 46)[2])
-    expected_width = round(0.5 / 25.4 * 254000)
-    assert widths == {expected_width}
+    expected = {round(3.0 / 72 * 254000), round(2.0 / 72 * 254000)}
+    assert widths == expected
     red_value = (RED_RGB[0] << 16) | (RED_RGB[1] << 8) | RED_RGB[2]
     blue_value = (BLUE_RGB[0] << 16) | (BLUE_RGB[1] << 8) | BLUE_RGB[2]
     assert colors == {red_value, blue_value}
@@ -192,14 +193,17 @@ def test_bbox_updated(sample_cdr: Path, tmp_path: Path) -> None:
     """bbox новых объектов отражает фактическую геометрию."""
     doc = CdrDocument.load(sample_cdr)
     contours = classify(doc.curve_objects())
-    double = build_double_line(contours, gap_mm=2.0)
+    double = build_double_line(
+        contours, red_offset_in=0.02, blue_offset_in=0.015
+    )
     out_path = tmp_path / 'out.cdr'
     write_output(
         doc,
         contours.zone_object,
         double.red,
         double.blue,
-        width_mm=0.5,
+        red_width_pt=3.0,
+        blue_width_pt=2.0,
         out_path=out_path,
     )
     result = CdrDocument.load(out_path)
