@@ -63,6 +63,34 @@ def test_rebuild_loda_reproduces_corel_layout() -> None:
     assert _rebuild_loda(GROUP_LODA, {}) == GROUP_LODA
 
 
+def test_data_bodies_follow_tree_order(sample_cdr: Path, tmp_path: Path) -> None:
+    """После записи тела чанков лежат в data-файлах в порядке дерева.
+
+    Corel читает пулы потоком: смещение каждого следующего стаба обязано
+    быть не меньше конца предыдущего в том же файле.
+    """
+    result, _ = _convert(sample_cdr, tmp_path)
+    cursors: dict[int, int] = {}
+
+    def walk(node) -> None:  # noqa: ANN001
+        for child in node.children:
+            if child.is_container:
+                walk(child)
+                continue
+            try:
+                file_index, size, offset = child.stub()
+            except Exception:
+                continue
+            if file_index not in result.data:
+                continue
+            assert offset >= cursors.get(file_index, 0), (
+                f'{child.name}: тело не по порядку ({offset})'
+            )
+            cursors[file_index] = offset + size
+
+    walk(result.root)
+
+
 def test_patch_outl_sets_width_and_color() -> None:
     """Патч меняет id, толщину и цвет в обоих местах записи."""
     patched = _patch_outl(OUTL_RECORD, new_id=7, width_units=5000, rgb=RED_RGB)
