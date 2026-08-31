@@ -588,8 +588,41 @@ def _replace_body(doc: CdrDocument, chunk: Chunk, body: bytes) -> None:
     chunk.set_stub(file_index, len(body), offset)
 
 
+def _repack_data_files(doc: CdrDocument) -> None:
+    """
+    Пересобрать data-файлы: тела чанков строго в порядке обхода дерева.
+
+    В родных файлах смещения тел монотонно растут в порядке дерева —
+    Corel, судя по поведению, читает data-файлы потоком, а не по
+    смещениям из стабов. Поэтому вклинивать новые тела в хвост нельзя:
+    после правок дерева весь пул собирается заново, стабы обновляются.
+    Тела, на которые ссылаются несколько стабов, дублируются — как в
+    родных файлах.
+    """
+    new_data: dict[int, bytearray] = {index: bytearray() for index in doc.data}
+
+    def walk(node: Chunk) -> None:
+        for child in node.children:
+            if child.is_container:
+                walk(child)
+                continue
+            try:
+                file_index, size, offset = child.stub()
+            except CdrFormatError:
+                continue
+            if file_index == NO_DATA_FILE or file_index not in doc.data:
+                continue
+            body = bytes(doc.data[file_index][offset : offset + size])
+            child.set_stub(file_index, size, len(new_data[file_index]))
+            new_data[file_index] += body
+
+    walk(doc.root)
+    doc.data = new_data
+
+
 def _write_zip(doc: CdrDocument, out_path: Path) -> None:
     """Записать контейнер: правленые части — заново, остальное как было."""
+    _repack_data_files(doc)
     replaced = {'content/root.dat': serialize(doc.root)}
     for index, name in enumerate(doc.data_names):
         replaced[f'content/data/{name}'] = bytes(doc.data[index])
