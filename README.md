@@ -45,11 +45,20 @@ uv sync                       # поставить зависимости
 uv run python src/main.py     # запустить
 ```
 
+## Окно (GUI)
+
+`lbs-liner-gui.exe` — то же самое мышкой: выбор файла (выход
+подставляется сам), толщины и просвет, кнопка на один файл и на всю
+папку, лог внизу. Консольный `lbs-liner.exe` остаётся для командной
+строки и пакетного режима.
+
+Локальный запуск окна: `PYTHONPATH=src uv run python src/gui_main.py`.
+
 ## Сборка исполняемого файла
 
 Windows-exe собирает GitHub Actions (workflow `CI`, job `build-windows`):
-на каждый merge в `main` артефакт `lbs-liner-windows` со свежим
-`lbs-liner.exe`. Скачать: страница Actions → прогон → Artifacts, либо
+на каждый merge в `main` артефакт `lbs-liner-windows` со свежими
+`lbs-liner.exe` (CLI) и `lbs-liner-gui.exe` (окно). Скачать: страница Actions → прогон → Artifacts, либо
 `gh run download --name lbs-liner-windows`. CI смоук-тестирует exe на
 синтетическом образце (`examples/sample.cdr` — придуманная геометрия,
 реальных данных в репозитории нет).
