@@ -47,7 +47,7 @@ def test_strip_returns_none_without_long_edges() -> None:
 
 def test_double_line_sides(contours) -> None:  # noqa: ANN001
     """Красная линия — в бывшей розовой зоне, синяя — снаружи."""
-    double = build_double_line(contours, gap_mm=2.0)
+    double = build_double_line(contours, red_offset_in=0.04, blue_offset_in=0.03)
     zone = contours.zone_polygon
     red_main = max(double.red, key=lambda s: len(s.points))
     blue_main = max(double.blue, key=lambda s: len(s.points))
@@ -57,7 +57,7 @@ def test_double_line_sides(contours) -> None:  # noqa: ANN001
 
 def test_hole_ring_red_outside(contours) -> None:  # noqa: ANN001
     """У дыры-кармана красное кольцо снаружи, синее внутри."""
-    double = build_double_line(contours, gap_mm=2.0)
+    double = build_double_line(contours, red_offset_in=0.04, blue_offset_in=0.03)
     hole_center = Point(6.5, 0.25)  # (6, 0) + сдвиг (0.5, 0.25)
     red_rings = [s for s in double.red if s.closed]
     blue_rings = [s for s in double.blue if s.closed]
@@ -75,7 +75,7 @@ def test_hole_ring_red_outside(contours) -> None:  # noqa: ANN001
 
 def test_isolated_blob_red_inside(contours) -> None:  # noqa: ANN001
     """У пятна вне зоны красное кольцо внутри, синее снаружи."""
-    double = build_double_line(contours, gap_mm=2.0)
+    double = build_double_line(contours, red_offset_in=0.04, blue_offset_in=0.03)
     blob_center = Point(-1.5, 1.25)  # (-2, 1) + сдвиг
     red = [s for s in double.red if s.closed and Polygon(s.points).contains(blob_center)]
     blue = [s for s in double.blue if s.closed and Polygon(s.points).contains(blob_center)]

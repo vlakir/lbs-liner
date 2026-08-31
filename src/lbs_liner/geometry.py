@@ -117,20 +117,33 @@ def classify(objects: list[CurveObject]) -> ClassifiedContours:
     return result
 
 
-def build_double_line(contours: ClassifiedContours, gap_mm: float) -> DoubleLine:
-    """Сместить каждый контур на ±gap/2: красная — к зоне, синяя — от неё."""
-    half_gap = gap_mm / MM_PER_INCH / 2.0
+def build_double_line(
+    contours: ClassifiedContours, *, red_offset_in: float, blue_offset_in: float
+) -> DoubleLine:
+    """
+    Сместить контуры: красная ось — к зоне, синяя — от неё (дюймы).
+
+    При смещениях в полтолщины каждой линии их края смыкаются ровно
+    на исходной трассе.
+    """
     zone = contours.zone_polygon
     out = DoubleLine()
 
     for points in contours.open_lines:
         line = LineString(points)
-        left = line.offset_curve(half_gap, join_style='mitre', mitre_limit=5.0)
-        right = line.offset_curve(-half_gap, join_style='mitre', mitre_limit=5.0)
-        if _side_score(left, zone) >= _side_score(right, zone):
-            red_geom, blue_geom = left, right
-        else:
-            red_geom, blue_geom = right, left
+        left_score = _side_score(
+            line.offset_curve(red_offset_in, join_style='mitre', mitre_limit=5.0), zone
+        )
+        right_score = _side_score(
+            line.offset_curve(-red_offset_in, join_style='mitre', mitre_limit=5.0), zone
+        )
+        red_sign = 1.0 if left_score >= right_score else -1.0
+        red_geom = line.offset_curve(
+            red_sign * red_offset_in, join_style='mitre', mitre_limit=5.0
+        )
+        blue_geom = line.offset_curve(
+            -red_sign * blue_offset_in, join_style='mitre', mitre_limit=5.0
+        )
         out.red.extend(_as_subpaths(red_geom, closed=False))
         out.blue.extend(_as_subpaths(blue_geom, closed=False))
 
@@ -138,8 +151,11 @@ def build_double_line(contours: ClassifiedContours, gap_mm: float) -> DoubleLine
         polygon = Polygon(ring)
         if not polygon.is_valid:
             polygon = polygon.buffer(0)
-        outer = polygon.buffer(half_gap, join_style='mitre', mitre_limit=5.0)
-        inner = polygon.buffer(-half_gap, join_style='mitre', mitre_limit=5.0)
+        red_inside = _red_is_inside(polygon, zone, red_offset_in)
+        inner_offset = red_offset_in if red_inside else blue_offset_in
+        outer_offset = blue_offset_in if red_inside else red_offset_in
+        outer = polygon.buffer(outer_offset, join_style='mitre', mitre_limit=5.0)
+        inner = polygon.buffer(-inner_offset, join_style='mitre', mitre_limit=5.0)
         outer_rings = _boundary_subpaths(outer)
         inner_rings = _boundary_subpaths(inner)
         if not inner_rings:
@@ -148,7 +164,7 @@ def build_double_line(contours: ClassifiedContours, gap_mm: float) -> DoubleLine
                 'оставлена только внешняя',
                 _ring_area(ring) * MM_PER_INCH**2,
             )
-        if _red_is_inside(polygon, zone, half_gap):
+        if red_inside:
             out.red.extend(inner_rings)
             out.blue.extend(outer_rings)
         else:

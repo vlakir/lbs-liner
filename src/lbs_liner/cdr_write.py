@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from lbs_liner.cdr_read import Point, Subpath
 
 MM_PER_INCH = 25.4
+PT_PER_INCH = 72.0
 
 RED_RGB = (0xFF, 0x00, 0x00)
 BLUE_RGB = (0x00, 0x00, 0xFF)
@@ -63,7 +64,8 @@ def write_output(
     red: list[Subpath],
     blue: list[Subpath],
     *,
-    width_mm: float,
+    red_width_pt: float,
+    blue_width_pt: float,
     out_path: Path,
     layer_name: str = DEFAULT_LAYER_NAME,
 ) -> None:
@@ -73,8 +75,9 @@ def write_output(
     Исходное содержимое, включая залитую зону и чужие слои, не
     трогается вовсе — линии приезжают отдельным слоем сверху.
     """
-    width_units = round(width_mm / MM_PER_INCH * COORD_UNITS_PER_INCH)
-    red_outl_id, blue_outl_id = _append_outline_records(doc, width_units)
+    red_units = round(red_width_pt / PT_PER_INCH * COORD_UNITS_PER_INCH)
+    blue_units = round(blue_width_pt / PT_PER_INCH * COORD_UNITS_PER_INCH)
+    red_outl_id, blue_outl_id = _append_outline_records(doc, red_units, blue_units)
 
     ids = _IdFactory(doc)
     nofill_id = _append_nofill_record(doc, ids)
@@ -142,7 +145,9 @@ def _find_parent(node: Chunk, target: Chunk) -> Chunk | None:
 # --- обводки ---------------------------------------------------------------
 
 
-def _append_outline_records(doc: CdrDocument, width_units: int) -> tuple[int, int]:
+def _append_outline_records(
+    doc: CdrDocument, red_units: int, blue_units: int
+) -> tuple[int, int]:
     """Дописать в data-файл красную и синюю обводки; вернуть их id."""
     otlt = _find_list(doc.root, 'otlt')
     outl_chunks = [ch for ch in otlt.children if ch.name == 'outl']
@@ -154,8 +159,8 @@ def _append_outline_records(doc: CdrDocument, width_units: int) -> tuple[int, in
     max_id = max(struct.unpack_from('<I', rec, 0)[0] for _, rec in records)
 
     red_id, blue_id = max_id + 1, max_id + 2
-    red_record = _patch_outl(donor, red_id, width_units, RED_RGB)
-    blue_record = _patch_outl(donor, blue_id, width_units, BLUE_RGB)
+    red_record = _patch_outl(donor, red_id, red_units, RED_RGB)
+    blue_record = _patch_outl(donor, blue_id, blue_units, BLUE_RGB)
 
     donor_file = records[0][0].stub()[0]
     for record in (red_record, blue_record):

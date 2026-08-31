@@ -14,7 +14,7 @@ from lbs_liner.synthetic import build_sample_cdr
 def test_happy_path(sample_cdr: Path, tmp_path: Path) -> None:
     """Штатный прогон: выход создан, код возврата 0."""
     out = tmp_path / 'result.cdr'
-    args = build_parser().parse_args([str(sample_cdr), '-o', str(out), '--gap', '2.0'])
+    args = build_parser().parse_args([str(sample_cdr), '-o', str(out)])
     assert run(args) == 0
     assert out.exists()
 
@@ -93,7 +93,8 @@ def test_single_zoneless_fails_plainly(tmp_path: Path) -> None:
 
 
 def test_defaults() -> None:
-    """Дефолты параметров: 0.2 мм толщина, 0.6 мм зазор."""
+    """Дефолты: красная 3 pt, синяя 2 pt, просвет 0 — вплотную."""
     args = build_parser().parse_args(['x.cdr'])
-    assert args.width == 0.2
-    assert args.gap == 0.6
+    assert args.red_width == 3.0
+    assert args.blue_width == 2.0
+    assert args.gap == 0.0
