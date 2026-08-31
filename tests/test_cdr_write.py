@@ -46,7 +46,6 @@ def _convert(sample_cdr: Path, tmp_path: Path) -> tuple[CdrDocument, Path]:
         double.blue,
         width_mm=0.5,
         out_path=out_path,
-        remove_objects=contours.consumed_objects,
     )
     return CdrDocument.load(out_path), out_path
 
@@ -139,25 +138,24 @@ def test_new_layer_holds_two_styled_objects(sample_cdr: Path, tmp_path: Path) ->
     assert colors == {red_value, blue_value}
 
 
-def test_zone_curves_removed_foreign_untouched(sample_cdr: Path, tmp_path: Path) -> None:
-    """Кривые слоя зоны исчезают, чужой слой остаётся байт-в-байт."""
+def test_original_objects_untouched(sample_cdr: Path, tmp_path: Path) -> None:
+    """Все исходные объекты и слои остаются байт-в-байт."""
     original = CdrDocument.load(sample_cdr)
-    foreign_lodas = sorted(
-        obj.loda_raw
-        for obj in original.curve_objects()
-        if original.layer_name(obj.layer_chunk) == 'Топооснова'
-    )
+    original_lodas = sorted(obj.loda_raw for obj in original.curve_objects())
     result, _ = _convert(sample_cdr, tmp_path)
 
     by_layer: dict[str | None, list[CurveObject]] = {}
     for obj in result.curve_objects():
         by_layer.setdefault(result.layer_name(obj.layer_chunk), []).append(obj)
-    # краснота исчезла: в её слое кривых больше нет
-    assert 'Заливка' not in by_layer
-    # чужой слой не тронут
-    assert sorted(o.loda_raw for o in by_layer['Топооснова']) == foreign_lodas
-    assert all(o.fill_id == 1 for o in by_layer['Топооснова'])
-    # новый слой несёт две линии
+    old_objects = [
+        obj
+        for name, objs in by_layer.items()
+        if name != DEFAULT_LAYER_NAME
+        for obj in objs
+    ]
+    assert sorted(o.loda_raw for o in old_objects) == original_lodas
+    assert all(o.fill_id == 1 for o in old_objects)
+    assert {'Заливка', 'Топооснова'} <= set(by_layer)
     assert len(by_layer[DEFAULT_LAYER_NAME]) == 2
 
 

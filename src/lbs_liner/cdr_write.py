@@ -66,14 +66,12 @@ def write_output(
     width_mm: float,
     out_path: Path,
     layer_name: str = DEFAULT_LAYER_NAME,
-    remove_objects: list[CurveObject] | None = None,
 ) -> None:
     """
-    Дописать новый слой с двумя ломаными; источники линий убрать.
+    Дописать в файл новый слой с двумя ломаными.
 
-    remove_objects — кривые, из которых построена двойная линия
-    (залитая зона, дубли, пятна): их в выходе быть не должно. Прочее
-    содержимое, включая чужие слои и не-кривые, не трогается.
+    Исходное содержимое, включая залитую зону и чужие слои, не
+    трогается вовсе — линии приезжают отдельным слоем сверху.
     """
     width_units = round(width_mm / MM_PER_INCH * COORD_UNITS_PER_INCH)
     red_outl_id, blue_outl_id = _append_outline_records(doc, width_units)
@@ -101,37 +99,7 @@ def write_output(
         raise CdrFormatError(msg)
     gobj.children.insert(gobj.children.index(zone_layer) + 1, layer)
 
-    for consumed in remove_objects or []:
-        _remove_object(doc.root, consumed.obj_chunk)
-    _prune_empty_groups(zone_layer)
-
     _write_zip(doc, out_path)
-
-
-def _remove_object(root: Chunk, obj_chunk: Chunk) -> None:
-    """Убрать LIST:obj из его родителя (если он ещё в дереве)."""
-    parent = _find_parent(root, obj_chunk)
-    if parent is not None:
-        parent.children.remove(obj_chunk)
-
-
-def _prune_empty_groups(node: Chunk) -> None:
-    """Удалить группы, в которых не осталось ни объектов, ни подгрупп."""
-    for child in list(node.children):
-        if child.is_container:
-            _prune_empty_groups(child)
-    node.children = [
-        child
-        for child in node.children
-        if not (
-            child.is_container
-            and child.list_type.strip() == 'grp'
-            and not any(
-                sub.is_container and sub.list_type.strip() in ('obj', 'grp')
-                for sub in child.children
-            )
-        )
-    ]
 
 
 class _IdFactory:
