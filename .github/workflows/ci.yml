@@ -24,8 +24,10 @@ jobs:
         run: uv run ruff format --check .
       - name: Типы
         run: uv run mypy src tests scripts
+      - name: Виртуальный дисплей для тестов окна
+        run: sudo apt-get update && sudo apt-get install -y xvfb
       - name: Тесты с покрытием
-        run: uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
+        run: xvfb-run -a uv run pytest --cov=src --cov-report=term-missing --cov-fail-under=80
 
   build-windows:
     runs-on: windows-latest
@@ -42,7 +44,10 @@ jobs:
         env:
           PYTHONPATH: src
       - name: Смоук — прогон exe
-        run: dist/lbs-liner.exe sample.cdr -o result.cdr
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/lbs-liner.exe -ArgumentList 'sample.cdr','-o','result.cdr' -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
       - name: Смоук — проверка результата
         run: uv run python scripts/verify_output.py result.cdr
         env:
@@ -52,9 +57,8 @@ jobs:
         run: |
           New-Item -ItemType Directory batch | Out-Null
           Copy-Item sample.cdr batch/
-          Set-Location batch
-          & ../dist/lbs-liner.exe
-          if ($LASTEXITCODE -ne 0) { exit 1 }
+          $p = Start-Process -FilePath (Resolve-Path dist/lbs-liner.exe) -ArgumentList '--batch' -WorkingDirectory batch -Wait -PassThru
+          if ($p.ExitCode -ne 0) { exit 1 }
       - name: Смоук — проверка пакетного результата
         run: uv run python scripts/verify_output.py batch/sample-lines.cdr
         env:

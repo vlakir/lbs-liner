@@ -1,4 +1,5 @@
-# Спецификация PyInstaller: один исполняемый файл lbs-liner (консольный).
+# Спецификация PyInstaller: единый lbs-liner — окно по двойному клику,
+# консольный режим при запуске с аргументами (сборка без консольного окна).
 # Сборка: uv run pyinstaller lbs-liner.spec
 
 a = Analysis(
@@ -25,5 +26,5 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=False,
-    console=True,
+    console=False,
 )
