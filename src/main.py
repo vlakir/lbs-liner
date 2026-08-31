@@ -118,6 +118,7 @@ def _convert_file(
         double.blue,
         width_mm=width,
         out_path=output_path,
+        remove_objects=contours.consumed_objects,
     )
     logger.info('готово: %s', output_path)
 
@@ -172,9 +173,7 @@ def run(args: argparse.Namespace) -> int:
         logger.exception('не получилось')
         return 1
     else:
-        logger.info(
-            'двойная линия добавлена новым слоем, исходное содержимое не менялось'
-        )
+        logger.info('линии добавлены новым слоем, исходная заливка убрана из выхода')
         return 0
     logger.error(no_zone_reason)
     return 1

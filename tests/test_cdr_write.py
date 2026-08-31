@@ -46,6 +46,7 @@ def _convert(sample_cdr: Path, tmp_path: Path) -> tuple[CdrDocument, Path]:
         double.blue,
         width_mm=0.5,
         out_path=out_path,
+        remove_objects=contours.consumed_objects,
     )
     return CdrDocument.load(out_path), out_path
 
@@ -123,7 +124,8 @@ def test_new_layer_holds_two_styled_objects(sample_cdr: Path, tmp_path: Path) ->
     widths = set()
     colors = set()
     for obj in new_objects:
-        assert obj.fill_id is None, 'заливки у новых объектов быть не должно'
+        assert obj.fill_id is not None
+        assert _is_nofill(result, obj.fill_id), 'заливка новых объектов не «нет»'
         assert obj.outl_id is not None
         record = _find_outl_record(result, obj.outl_id)
         widths.add(_outl_width(record))
@@ -137,24 +139,26 @@ def test_new_layer_holds_two_styled_objects(sample_cdr: Path, tmp_path: Path) ->
     assert colors == {red_value, blue_value}
 
 
-def test_original_objects_untouched(sample_cdr: Path, tmp_path: Path) -> None:
-    """Исходные объекты и их слои остаются байт-в-байт."""
+def test_zone_curves_removed_foreign_untouched(sample_cdr: Path, tmp_path: Path) -> None:
+    """Кривые слоя зоны исчезают, чужой слой остаётся байт-в-байт."""
     original = CdrDocument.load(sample_cdr)
-    original_lodas = sorted(obj.loda_raw for obj in original.curve_objects())
+    foreign_lodas = sorted(
+        obj.loda_raw
+        for obj in original.curve_objects()
+        if original.layer_name(obj.layer_chunk) == 'Топооснова'
+    )
     result, _ = _convert(sample_cdr, tmp_path)
 
-    old_objects = [
-        obj
-        for obj in result.curve_objects()
-        if result.layer_name(obj.layer_chunk) != DEFAULT_LAYER_NAME
-    ]
-    assert len(old_objects) == 4
-    assert sorted(obj.loda_raw for obj in old_objects) == original_lodas
-    # заливка исходной зоны цела
-    assert all(obj.fill_id == 1 for obj in old_objects)
-    # чужой слой на месте под своим именем
-    names = {result.layer_name(obj.layer_chunk) for obj in old_objects}
-    assert names == {'Заливка', 'Топооснова'}
+    by_layer: dict[str | None, list[CurveObject]] = {}
+    for obj in result.curve_objects():
+        by_layer.setdefault(result.layer_name(obj.layer_chunk), []).append(obj)
+    # краснота исчезла: в её слое кривых больше нет
+    assert 'Заливка' not in by_layer
+    # чужой слой не тронут
+    assert sorted(o.loda_raw for o in by_layer['Топооснова']) == foreign_lodas
+    assert all(o.fill_id == 1 for o in by_layer['Топооснова'])
+    # новый слой несёт две линии
+    assert len(by_layer[DEFAULT_LAYER_NAME]) == 2
 
 
 def test_new_ids_are_unique(sample_cdr: Path, tmp_path: Path) -> None:
@@ -209,6 +213,21 @@ def test_bbox_updated(sample_cdr: Path, tmp_path: Path) -> None:
         x0, _, x1, _ = struct.unpack('<4i', result.resolve(bbox_chunks[0]))
         assert x0 >= round((min(xs) - 0.01) * 254000)
         assert x1 <= round((max(xs) + 0.01) * 254000)
+
+
+def _is_nofill(doc: CdrDocument, fill_id: int) -> bool:
+    """Ссылается ли объект на fild-запись типа 0 («нет заливки»)."""
+    for chunk in doc.root.find_all('fild'):
+        record = doc.resolve(chunk)
+        if struct.unpack_from('<I', record, 0)[0] != fill_id:
+            continue
+        pos = 4
+        while pos + 8 <= len(record):
+            tag, length = struct.unpack_from('<II', record, pos)
+            if tag == 0x514:
+                return length >= 2 and struct.unpack_from('<H', record, pos + 8)[0] == 0
+            pos += 8 + length
+    return False
 
 
 def _find_outl_record(doc: CdrDocument, outl_id: int) -> bytes:

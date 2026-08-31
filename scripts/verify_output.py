@@ -20,8 +20,8 @@ from lbs_liner.cdr_write import DEFAULT_LAYER_NAME
 _EXPECTED_ARGC = 2
 # В новом слое ровно два объекта: красная линия и синяя.
 _EXPECTED_NEW = 2
-# Исходных кривых в синтетическом образце четыре, и все с заливкой.
-_EXPECTED_OLD = 4
+# После преобразования из исходных кривых остаётся только чужой слой.
+_EXPECTED_OLD = 1
 
 
 def find_problems(doc: CdrDocument) -> list[str]:
@@ -37,12 +37,12 @@ def find_problems(doc: CdrDocument) -> list[str]:
     if len(new) != _EXPECTED_NEW:
         problems.append(f'в слое «{DEFAULT_LAYER_NAME}» {len(new)} объектов, ждали 2')
     if len(old) != _EXPECTED_OLD:
-        problems.append(f'исходных объектов {len(old)}, ждали {_EXPECTED_OLD}')
+        problems.append(f'посторонних кривых {len(old)}, ждали {_EXPECTED_OLD}')
     if any(obj.fill_id is None for obj in old):
-        problems.append('у исходного объекта пропала заливка')
+        problems.append('у постороннего объекта пропала заливка')
     for obj in new:
-        if obj.fill_id is not None:
-            problems.append('у нового объекта осталась заливка')
+        if obj.fill_id is None:
+            problems.append('у нового объекта нет ссылки на «нет заливки»')
         if obj.outl_id is None:
             problems.append('у нового объекта нет обводки')
         open_subs = [sub for sub in obj.world_subpaths() if not sub.closed]
