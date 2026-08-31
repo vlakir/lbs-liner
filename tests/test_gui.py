@@ -17,6 +17,11 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
 
+@pytest.fixture(autouse=True)
+def isolated_appdata(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('APPDATA', str(tmp_path))
+
+
 @pytest.fixture
 def app() -> Iterator[App]:
     try:
@@ -85,6 +90,30 @@ def test_batch_via_gui(
     )
     app.convert_folder()
     assert (tmp_path / 'sample-lines.cdr').exists()
+
+
+def test_parameters_survive_restart(
+    sample_cdr: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Параметры, выставленные в окне, доживают до следующего запуска."""
+    try:
+        first = App()
+    except tk.TclError:
+        pytest.skip('нет дисплея для tkinter')
+    first.red_var.set('4,5')
+    first.blue_var.set('1')
+    first.gap_var.set('0.25')
+    first.on_close()
+    logging.getLogger().removeHandler(first._log_handler)  # noqa: SLF001
+
+    second = App()
+    try:
+        assert second.red_var.get() == '4.5'
+        assert second.blue_var.get() == '1'
+        assert second.gap_var.get() == '0.25'
+    finally:
+        logging.getLogger().removeHandler(second._log_handler)  # noqa: SLF001
+        second.destroy()
 
 
 def test_parsers() -> None:

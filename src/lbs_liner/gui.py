@@ -8,15 +8,13 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from lbs_liner.convert import (
-    DEFAULT_BLUE_PT,
-    DEFAULT_GAP_PT,
-    DEFAULT_RED_PT,
     convert_file,
     lines_name,
     run_batch,
 )
 from lbs_liner.geometry import NoZoneError
 from lbs_liner.riff import CdrFormatError
+from lbs_liner.settings import load_settings, save_settings
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +46,12 @@ class App(tk.Tk):
         self.title('lbs-liner — двойная линия из заливки')
         self.minsize(560, 420)
 
+        saved = load_settings()
         self.input_var = tk.StringVar()
         self.output_var = tk.StringVar()
-        self.red_var = tk.StringVar(value=str(DEFAULT_RED_PT))
-        self.blue_var = tk.StringVar(value=str(DEFAULT_BLUE_PT))
-        self.gap_var = tk.StringVar(value=str(DEFAULT_GAP_PT))
+        self.red_var = tk.StringVar(value=_pretty(saved['red_width']))
+        self.blue_var = tk.StringVar(value=_pretty(saved['blue_width']))
+        self.gap_var = tk.StringVar(value=_pretty(saved['gap']))
 
         body = ttk.Frame(self, padding=_PADDING)
         body.pack(fill='both', expand=True)
@@ -110,6 +109,7 @@ class App(tk.Tk):
         logging.getLogger().addHandler(handler)
         logging.getLogger().setLevel(logging.INFO)
         self._log_handler = handler
+        self.protocol('WM_DELETE_WINDOW', self.on_close)
 
     # --- обработчики -------------------------------------------------------
 
@@ -175,7 +175,14 @@ class App(tk.Tk):
         finally:
             self._busy(active=False)
 
-    def _params(self) -> tuple[float, float, float] | None:
+    def on_close(self) -> None:
+        """Запомнить параметры и закрыть окно."""
+        params = self._params(quiet=True)
+        if params is not None:
+            save_settings(*params)
+        self.destroy()
+
+    def _params(self, *, quiet: bool = False) -> tuple[float, float, float] | None:
         try:
             red_pt = _parse_positive(self.red_var.get())
             blue_pt = _parse_positive(self.blue_var.get())
@@ -183,8 +190,10 @@ class App(tk.Tk):
         except ValueError as exc:
             problem = str(exc)
         else:
+            save_settings(red_pt, blue_pt, gap_pt)
             return red_pt, blue_pt, gap_pt
-        logger.error(problem)
+        if not quiet:
+            logger.error(problem)
         return None
 
     def _busy(self, *, active: bool) -> None:
@@ -192,6 +201,11 @@ class App(tk.Tk):
         self.convert_button.configure(state=state)
         self.batch_button.configure(state=state)
         self.update_idletasks()
+
+
+def _pretty(value: float) -> str:
+    """Число без лишнего хвоста: 3.0 → «3», 2.5 → «2.5»."""
+    return str(int(value)) if value == int(value) else str(value)
 
 
 def _parse_positive(text: str) -> float:
