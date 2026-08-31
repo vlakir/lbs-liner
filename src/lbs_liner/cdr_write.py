@@ -66,14 +66,26 @@ def write_output(
     width_mm: float,
     out_path: Path,
     layer_name: str = DEFAULT_LAYER_NAME,
+    remove_objects: list[CurveObject] | None = None,
 ) -> None:
-    """Дописать в файл новый слой с двумя объектами-ломаными."""
+    """
+    Дописать новый слой с двумя ломаными; источники линий убрать.
+
+    remove_objects — кривые, из которых построена двойная линия
+    (залитая зона, дубли, пятна): их в выходе быть не должно. Прочее
+    содержимое, включая чужие слои и не-кривые, не трогается.
+    """
     width_units = round(width_mm / MM_PER_INCH * COORD_UNITS_PER_INCH)
     red_outl_id, blue_outl_id = _append_outline_records(doc, width_units)
 
     ids = _IdFactory(doc)
-    red_obj = _build_object(doc, zone, red, red_outl_id, ids=ids, tag='red')
-    blue_obj = _build_object(doc, zone, blue, blue_outl_id, ids=ids, tag='blue')
+    nofill_id = _append_nofill_record(doc, ids)
+    red_obj = _build_object(
+        doc, zone, red, red_outl_id, ids=ids, tag='red', fill_id=nofill_id
+    )
+    blue_obj = _build_object(
+        doc, zone, blue, blue_outl_id, ids=ids, tag='blue', fill_id=nofill_id
+    )
 
     all_points = [pt for sub in red + blue for pt in sub.points]
     group = _build_group(doc, zone, [red_obj, blue_obj], all_points, ids)
@@ -89,7 +101,37 @@ def write_output(
         raise CdrFormatError(msg)
     gobj.children.insert(gobj.children.index(zone_layer) + 1, layer)
 
+    for consumed in remove_objects or []:
+        _remove_object(doc.root, consumed.obj_chunk)
+    _prune_empty_groups(zone_layer)
+
     _write_zip(doc, out_path)
+
+
+def _remove_object(root: Chunk, obj_chunk: Chunk) -> None:
+    """Убрать LIST:obj из его родителя (если он ещё в дереве)."""
+    parent = _find_parent(root, obj_chunk)
+    if parent is not None:
+        parent.children.remove(obj_chunk)
+
+
+def _prune_empty_groups(node: Chunk) -> None:
+    """Удалить группы, в которых не осталось ни объектов, ни подгрупп."""
+    for child in list(node.children):
+        if child.is_container:
+            _prune_empty_groups(child)
+    node.children = [
+        child
+        for child in node.children
+        if not (
+            child.is_container
+            and child.list_type.strip() == 'grp'
+            and not any(
+                sub.is_container and sub.list_type.strip() in ('obj', 'grp')
+                for sub in child.children
+            )
+        )
+    ]
 
 
 class _IdFactory:
@@ -155,6 +197,37 @@ def _append_outline_records(doc: CdrDocument, width_units: int) -> tuple[int, in
         stub_chunk.set_stub(donor_file, len(record), offset)
         otlt.children.append(stub_chunk)
     return red_id, blue_id
+
+
+def _append_nofill_record(doc: CdrDocument, ids: _IdFactory) -> int:
+    """
+    Дописать fild-запись «нет заливки»; вернуть её id.
+
+    Раскладка снята с файла, сохранённого самим CorelDRAW 26: GUID-блок
+    (тег 0x960) и блок типа заливки (тег 0x514) длиной 2 с типом 0.
+    Просто опустить аргумент заливки в лоде нельзя — Corel тогда берёт
+    заливку из стиля и красит линию.
+    """
+    filt = _find_list(doc.root, 'filt')
+    fild_chunks = filt.find_all('fild')
+    if not fild_chunks:
+        msg = 'в документе нет таблицы заливок (filt пуст)'
+        raise CdrFormatError(msg)
+    records = [(ch, doc.resolve(ch)) for ch in fild_chunks]
+    new_id = max(struct.unpack_from('<I', rec, 0)[0] for _, rec in records) + 1
+
+    record = bytearray()
+    record += struct.pack('<I', new_id)
+    record += struct.pack('<II', 0x960, 16) + ids.sixteen_bytes('fild-guid')
+    record += struct.pack('<IIH', 0x514, 2, 0)
+    record += b'\0' * 10
+
+    donor_file = records[0][0].stub()[0]
+    stub_chunk = Chunk(name='fild')
+    stub_chunk.set_stub(donor_file, len(record), len(doc.data[donor_file]))
+    doc.data[donor_file] += bytes(record)
+    filt.children.append(Chunk(name='LIST', list_type='filc', children=[stub_chunk]))
+    return new_id
 
 
 def _find_list(root: Chunk, list_type: str) -> Chunk:
@@ -360,6 +433,7 @@ def _build_object(
     *,
     ids: _IdFactory,
     tag: str,
+    fill_id: int,
 ) -> Chunk:
     """
     Новый LIST:obj по образцу объекта зоны.
@@ -373,7 +447,7 @@ def _build_object(
         donor.loda_raw,
         {
             ARG_COORDS: _coords_blob(_to_local(subpaths, donor.transform)),
-            ARG_FILL: None,
+            ARG_FILL: struct.pack('<I', fill_id),
             ARG_OUTL: struct.pack('<I', outl_id),
         },
     )

@@ -34,6 +34,13 @@ OUTL_RECORD = bytes.fromhex(
     '00000000000000000000000000'
 )
 
+# Запись заливки, сохранённая самим CorelDRAW 26 («нет заливки»):
+# GUID-блок (тег 0x960) + блок типа (тег 0x514, длина 2, тип 0).
+FILD_RECORD = bytes.fromhex(
+    '010000006009000010000000c7ef5a3fb631914b8dcd736d010f1c5d'
+    '140500000200000000000000000000000000'
+)
+
 Ring = list[tuple[float, float]]
 
 
@@ -216,6 +223,9 @@ def build_sample_cdr(path: Path, *, filled: bool = True) -> Path:
 
     outl_stub = Chunk(name='outl')
     outl_stub.set_stub(0, len(OUTL_RECORD), 0)
+    fild_stub = Chunk(name='fild')
+    fild_stub.set_stub(0, len(FILD_RECORD), len(data1))
+    data1.extend(FILD_RECORD)
 
     objects = [
         build_obj([square(-2.0, 1.0, 0.25)], b'\x01' * 16),  # пятно вне зоны
@@ -238,7 +248,16 @@ def build_sample_cdr(path: Path, *, filled: bool = True) -> Path:
             Chunk(
                 name='LIST',
                 list_type='doc ',
-                children=[Chunk(name='LIST', list_type='otlt', children=[outl_stub])],
+                children=[
+                    Chunk(
+                        name='LIST',
+                        list_type='filt',
+                        children=[
+                            Chunk(name='LIST', list_type='filc', children=[fild_stub])
+                        ],
+                    ),
+                    Chunk(name='LIST', list_type='otlt', children=[outl_stub]),
+                ],
             ),
             Chunk(
                 name='LIST',
