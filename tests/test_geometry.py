@@ -26,8 +26,6 @@ def contours(sample_cdr: Path):  # noqa: ANN201
 def test_classify_finds_zone_and_drops_draft(contours) -> None:  # noqa: ANN001
     """Зона — самый большой объект; черновик-дубль отброшен."""
     assert contours.dropped_duplicates == 1
-    # источники линий: зона, черновик и пятно — все кривые слоя зоны
-    assert len(contours.consumed_objects) == 3
     assert len(contours.open_lines) == 1
     # дыра-карман + пятно
     assert len(contours.closed_rings) == 2

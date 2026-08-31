@@ -47,8 +47,6 @@ class ClassifiedContours:
     open_lines: list[list[tuple[float, float]]] = field(default_factory=list)
     closed_rings: list[list[tuple[float, float]]] = field(default_factory=list)
     dropped_duplicates: int = 0
-    # Кривые слоя зоны (зона, дубли, пятна) — источники линий; в выход не идут.
-    consumed_objects: list[CurveObject] = field(default_factory=list)
 
 
 @dataclass
@@ -90,11 +88,7 @@ def classify(objects: list[CurveObject]) -> ClassifiedContours:
     main_ring, islands = _zone_rings(zone_subpaths)
     zone_polygon = _build_zone_polygon(main_ring, islands)
 
-    result = ClassifiedContours(
-        zone_object=zone_obj,
-        zone_polygon=zone_polygon,
-        consumed_objects=[obj for obj, _ in candidates],
-    )
+    result = ClassifiedContours(zone_object=zone_obj, zone_polygon=zone_polygon)
 
     zone_track = LineString(main_ring)
     open_line = _strip_artificial_edges(main_ring)
