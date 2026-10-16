@@ -85,8 +85,8 @@ uv add --dev <pkg>            # dev
 ```bash
 uv run ruff check .
 uv run ruff format --check .
-uv run mypy src tests
-uv run pytest  # тяжёлый прогон — через scripts/pytest-guard.sh
+uv run mypy src tests scripts
+xvfb-run -a scripts/pytest-guard.sh --cov=src --cov-report=term-missing --cov-fail-under=80
 ```
 
 Все четыре должны проходить с 0 ошибок. Обходные манёвры (`# noqa`,
@@ -101,7 +101,9 @@ uv run pytest  # тяжёлый прогон — через scripts/pytest-guard
 - `BACKLOG.md` — парковка идей и побочных находок.
 - `CHANGELOG.md` — журнал заметных изменений.
 - `specs/` — спецификации крупных фич.
-- `CLAUDE.md` — проектные правила для Claude (Claude Code).
+- `AGENTS.md` — проектные правила для OpenCode.
+- `opencode.json`, `.opencode/agents/`, `.opencode/team-roles.md` — native
+  роли, автозагрузка методики, решение человека и командные контроли.
 
 ## Методика работы
 

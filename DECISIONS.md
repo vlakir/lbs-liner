@@ -37,6 +37,29 @@ ADR-Lite: компактный лог архитектурных решений 
 
 ## Решения проекта
 
+### 2026-10-16 — T015: manual lossless перенос методики dreamteam 2.0.0 в native OpenCode
+
+- **Решение:** по прямому уточнению пользователя выполнить meaningful manual
+  transfer project context, ролей, команд/контролей и actual unfinished continuity;
+  не требовать автоматического noop для generic seed ADD2.
+- **Контекст:** исходный ordinary dry-run1.7.0→2.0.0 дал rc2 Content conflict
+  architect; полный inventory28 получен штатным public init без чтения CLI source.
+  Private originals22 (19baseline+3canonicalrefs) byte-identical,0700/0600;
+  независимый semantic A review и отдельная проверка архива предшествуют
+  деактивации legacy и записи2.0.0 provenance. Сохраняется прежний public answers
+  contract; source bundle path совпадает с фактическим output установленного init.
+- **Альтернативы:** unattended update/force/подмена answers/скрытие business ADD
+  отвергнуты. Оставить значимое поведение только архивом недостаточно; перенесено
+  в активные AGENTS/native roles/autoload teamroles. Generic seed ADD2 допустим
+  только как явно описанное ограничение human-manual acceptance, не auto-success.
+- **Последствия:** native9roles, lead-only question, readonly architect/reviewer,
+  human decision→ADR, designbrief и checkpoint continuity действуют в файлах
+  проекта. Текущая команда не перезапускается для reload. Normal full repeat
+  оценивается целиком; meaningful pending MODIFY недопустим. Приложение,
+  стек/lock, исторические product ADR и GitHub CI не меняются. T171 automatic AC
+  не переписывается; локальный checkpoint не означает приёмку/CI или main merge.
+  Executive merge hold действует отдельно; исходный root не активируется.
+
 ### 2026-08-31 — GUI на tkinter отдельной сборкой без консоли
 
 - **Контекст:** T011. Нужно «простенькое» окно для заказчика: файл,
@@ -107,4 +130,3 @@ ADR-Lite: компактный лог архитектурных решений 
   линии: бит 0x08 на moveTo Corel понимает как «этот подпуть замкнут»,
   а libcdr — как «закрыть предыдущий»; такой порядок корректен в обеих
   трактовках.
-

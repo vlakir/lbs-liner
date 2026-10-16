@@ -25,6 +25,12 @@ T-ID между релизами — `CHANGELOG.md` единственное per
 
 ## [Unreleased]
 
+- Changed: ручной lossless перенос методики dreamteam 2.0.0 в native OpenCode:
+  полный inventory28+custom, decision loop человека и native9roles/controls,
+  private originals и проверяемая continuity T015; generic seed ADD2 не noop
+  и не применяется к приложению. Приёмка/CI и executive merge hold отдельно
+  от checkpoint (T015).
+
 - Fixed: CI падал на `uv sync` — при `requires-python = ">=3.14"` без
   `.python-version` uv брал свежий Python 3.15, под который у shapely нет
   колёс, а сборка из исходников ломалась. Версия закреплена файлом
