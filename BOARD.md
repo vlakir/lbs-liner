@@ -69,8 +69,12 @@ ID уже даёт идентификацию). Имя PR: `T<NNN>: <title>`. С
   перенос project instructions/roles/commands/controls без потери поведения;
   честный полный normal dry-run с отдельной оценкой scope; неизменные
   application/CI contracts и зелёные обязательные гейты/review итогового SHA.
-  Статус: **Doing / blocked**, не принят; preflight devops-r1:
-  `specs/T015-dreamteam-200/rollout-preflight.md`.
+  Статус: **Doing / review**, не принят; initial rc2 content conflict сохранён
+  в `specs/T015-dreamteam-200/rollout-preflight.md`; разрешённый manual round2:
+  `specs/T015-dreamteam-200/rollout-manual.md`. Полный inventory28+custom,
+  private originals22 (не подгонка19), canonical local gates55/86.10%.
+  Финальные review/CI и готовность continuation path проверяются отдельно;
+  merge в main удержан executive merge hold, исходный checkout не активировать.
 
 
 
