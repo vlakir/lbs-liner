@@ -63,22 +63,27 @@ ID уже даёт идентификацию). Имя PR: `T<NNN>: <title>`. С
      разработчика, иначе теряется фокус (классическое WIP-limit
      правило из Kanban). -->
 
-- **T015** — Lossless rollout методики dreamteam 2.0.0 в native OpenCode.
+## Done
+
+- **T015** — Lossless rollout методики dreamteam 2.0.0 в native OpenCode
+  [repository/manual closure 2026-10-16; подготовлено в payload итогового PR].
   Acceptance: полный inventory managed+custom и native behavioral mapping;
   private byte-identical originals и независимый review до деактивации;
   перенос project instructions/roles/commands/controls без потери поведения;
   честный полный normal dry-run с отдельной оценкой scope; неизменные
   application/CI contracts и зелёные обязательные гейты/review итогового SHA.
-  Статус: **Doing / review**, не принят; initial rc2 content conflict сохранён
-  в `specs/T015-dreamteam-200/rollout-preflight.md`; разрешённый manual round2:
-  `specs/T015-dreamteam-200/rollout-manual.md`. Полный inventory28+custom,
-  private originals22 (не подгонка19), canonical local gates55/86.10%.
-  Финальные review/CI и готовность continuation path проверяются отдельно;
-  merge в main удержан executive merge hold, исходный checkout не активировать.
-
-
-
-## Done
+  Repository/manual результат: inventory28+custom, originals22, независимый
+  reviewer-r2 A/B/C PASS; лид повторил local gates (55 passed, coverage86.10%).
+  Полные normal repeat: rc0, 0 would change, 28 unchanged, без ADD/REMOVE/conflict;
+  inputs не фильтровались, bytes стабильны. Initial rc2 и chronology сохранены
+  в `specs/T015-dreamteam-200/rollout-preflight.md` и `rollout-manual.md`.
+  GitHub CI checkpoint `a4e8c2b`: [run38945673338](https://github.com/vlakir/lbs-liner/actions/runs/38945673338)
+  PASS (gates + Windows build/single/batch smoke). Это не CI будущего final SHA:
+  итоговый payload ещё проходит независимый review и CI exact delivery SHA.
+  **Delivery/merge/activation отдельно:** Done не разрешает merge; пользовательский
+  MERGE HOLD действует при любых PASS. Исходный root на migration/opencode
+  не активировать и не убирать; activation pending, работа продолжается в T015
+  integration path. Полная граница приёмки — в финальном разделе rollout-manual.
 
 - **T014** — CI: закрепить Python 3.14 (`.python-version`), shapely
   не собирается на 3.15 [closed 2026-10-11].

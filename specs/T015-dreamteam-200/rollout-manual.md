@@ -209,3 +209,60 @@ xvfb-run -a scripts/pytest-guard.sh --cov=src --cov-report=term-missing --cov-fa
 выдумываются: исполнитель не push/PR/merge. T015 остаётся Doing. Executive
 main merge hold — отдельное ограничение, не красный тест. Исходный checkout
 на migration/opencode не активировался, cleanup и server restart не делались.
+
+## Финальный checkpoint и граница repository/manual closure — раунд 3
+
+Дата: 2026-10-16. Этот раздел дополняет, а не переписывает chronology r1/r2
+выше: Doing и pending там описывают состояние на момент передачи r2.
+Версия2.0.0 относится к **методике dreamteam**, runtime — OpenCode1.19.0
+с Ensemble0.18.0, не «OpenCode2.0.0».
+
+### Основания repository/manual приёмки
+
+- Согласованный exact base r3: `a4e8c2b2e35e8f920244d39a5de0a3283dad1e32`.
+  Свежий собственный worktree devops-r3-closure начал с этого HEAD и clean
+  status; before=after, выравнивания не было. Автор меняет только пять
+  согласованных документов; приложение, CI, stack/lock и source CLI не трогает.
+- Независимый reviewer-r2-manual прочитал фактические файлы полного переноса
+  и дал **A/B/C PASS**. Это дополняет прежний predeactivation A, а не выдаёт
+  прежнее частичное чтение за полный C review. Inventory28+custom и private
+  originals22 сохранены; initial rc2 Content conflict остаётся фактом истории.
+- Лид независимо повторил canonical local gates: ruff check PASS,
+  format35, mypy22, Xvfb+guard pytest **55 passed / 86.10%** (порог80).
+- Лид подтвердил два полных ordinary normal repeat: оба rc0 и полный summary
+  **0 would change, 28 unchanged, 0 added, 0 removed, 0 conflicts**.
+  Сопоставленные с источниками inputs штатного init не менялись; fingerprint
+  tracked bytes стабилен. Это дополнительные повторы, не замена шести r2.
+  Generic ADD2 фактически не наблюдался; ограничение на unattended apply
+  сохраняется. Manual acceptance не доказывает automatic legacy migration
+  и не меняет source/domain AC либо T171.
+- GitHub CI **run38945673338**, exact SHA
+  `a4e8c2b2e35e8f920244d39a5de0a3283dad1e32`: **SUCCESS**,
+  [ссылка на checkpoint run](https://github.com/vlakir/lbs-liner/actions/runs/38945673338).
+  Лид проверил gates job117124050878 (55 passed, 86.10%) и Windows
+  job117124213965 (build, single и batch smokes — success).
+
+### Что закрывается и что ещё не выполнено
+
+В BOARD.md переход T015 Doing→Done подготовлен **в payload того же итогового
+PR** как repository/manual closure на указанных свидетельствах, не отдельным
+послемержевым chore. Лид ещё проверяет интегрированный actual diff, reviewer
+проверяет новые closure-правки; окончательный delivery commit должен пройти
+собственный CI exact SHA. Зелёный checkpoint run выше **не является** CI
+будущего squash/final PR SHA. До этих проверок delivery не считается принятым.
+
+Пользовательский **MERGE HOLD** действует для любого будущего merge независимо
+от PASS: разрешена подготовка PR/push, но не merge в main, force/reset main
+или переписывание истории. Один итоговый PR — один коммит; его delivery-ветку
+готовит лид. Done/checkpoint сами по себе не снимают hold.
+
+Исходный root `/home/vlakir/programming/lbs-liner` остаётся на
+`migration/opencode` / `7435b86c6f9003a852bbcd61da436a901d861a27`; его владелец
+и активность не установлены. Не выполнять там activation, checkout или cleanup.
+Continuation path — `/home/vlakir/programming/lbs-liner/.worktrees/T015-dreamteam-200`.
+**Root activation pending** — отдельная операционная граница, не условие
+repository/manual приёмки. Новая конфигурация не объявляется live-loaded:
+один текущий сервер/attach сохраняется, активная команда не перезапускалась.
+Ни закрытие delivery, ни main merge, ни root activation этим разделом
+не объявляются состоявшимися. История реальной unfinished r1/r2 и terminal
+shutdown сохраняется; r3 — новый автор от согласованного checkpoint, не resume.

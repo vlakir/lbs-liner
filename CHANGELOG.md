@@ -25,7 +25,7 @@ T-ID между релизами — `CHANGELOG.md` единственное per
 
 ## [Unreleased]
 
-- Changed: ручной lossless перенос проектной методики в native OpenCode2.0.0:
+- Changed: ручной lossless перенос методики dreamteam 2.0.0 в native OpenCode:
   полный inventory28+custom, decision loop человека и native9roles/controls,
   private originals и проверяемая continuity T015; generic seed ADD2 не noop
   и не применяется к приложению. Приёмка/CI и executive merge hold отдельно

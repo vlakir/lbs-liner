@@ -37,7 +37,7 @@ ADR-Lite: компактный лог архитектурных решений 
 
 ## Решения проекта
 
-### 2026-10-16 — T015: manual lossless перенос методики в native OpenCode2.0.0
+### 2026-10-16 — T015: manual lossless перенос методики dreamteam 2.0.0 в native OpenCode
 
 - **Решение:** по прямому уточнению пользователя выполнить meaningful manual
   transfer project context, ролей, команд/контролей и actual unfinished continuity;

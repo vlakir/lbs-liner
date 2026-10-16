@@ -72,10 +72,14 @@ MCP. Методика не требует конкретного провайд�
   любого сбоя не обещаются. Один постоянный сервер, клиенты attach; не перезапускать
   активную команду для применения этих файлов. Новая конфигурация — после штатного
   завершения и нового старта, отдельно от нынешнего rollout.
-- Незавершённая T015 остаётся в BOARD.md Doing до полного review/CI; текущие
-  исходные свидетельства devops-r1 — specs/T015-dreamteam-200/rollout-preflight.md,
-  продолжение r2 — rollout-manual.md рядом. Это continuity реальной открытой
-  задачи, а не обещание восстановления любого task.
+- Историческая continuity T015: devops-r1 partial/Doing → checkpoint → новый
+  devops-r2-manual; исходные свидетельства — specs/T015-dreamteam-200/rollout-preflight.md
+  и rollout-manual.md рядом. После независимого A/B/C review и зелёного checkpoint
+  CI repository/manual closure подготовлен в BOARD.md Done в payload итогового PR.
+  Delivery ещё требует review/CI exact final SHA; пользовательский MERGE HOLD
+  сохраняется независимо от PASS. Исходный root не активировать/не убирать:
+  activation pending, continuation — T015 integration path. Это реальная история
+  незавершённой работы r1/r2 и её границ, не обещание recovery любого task.
 - Gates: ruff check ., ruff format --check ., mypy src tests scripts;
   полный pytest с Xvfb через scripts/pytest-guard.sh, coverage80. GitHub CI
   сохраняет Windows build/smoke. srv onboarding не подтверждён; иной CI не вводить.
