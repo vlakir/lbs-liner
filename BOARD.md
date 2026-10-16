@@ -63,6 +63,15 @@ ID уже даёт идентификацию). Имя PR: `T<NNN>: <title>`. С
      разработчика, иначе теряется фокус (классическое WIP-limit
      правило из Kanban). -->
 
+- **T015** — Lossless rollout методики dreamteam 2.0.0 в native OpenCode.
+  Acceptance: полный inventory managed+custom и native behavioral mapping;
+  private byte-identical originals и независимый review до деактивации;
+  перенос project instructions/roles/commands/controls без потери поведения;
+  честный полный normal dry-run с отдельной оценкой scope; неизменные
+  application/CI contracts и зелёные обязательные гейты/review итогового SHA.
+  Статус: **Doing / blocked**, не принят; preflight devops-r1:
+  `specs/T015-dreamteam-200/rollout-preflight.md`.
+
 
 
 ## Done
