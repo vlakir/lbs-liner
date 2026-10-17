@@ -1,5 +1,5 @@
-_commit: 1.7.0
-_src_path: /home/vlakir/.cache/uv/archive-v0/SW0WnlDPo9avCQXS/lib/python3.14/site-packages/dreamteam/template/.bundle
+_commit: 2.0.0
+_src_path: /home/vlakir/.local/share/uv/tools/dreamteam-cli/lib/python3.14/site-packages/dreamteam/template/.bundle
 language: ru
 package_manager: uv
 project_name: lbs-liner
